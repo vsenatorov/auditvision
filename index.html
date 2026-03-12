@@ -1,0 +1,1253 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Audit Radar — Real-Time Audit Explorer for OpenShift</title>
+<meta name="description" content="Real-time audit log explorer for OpenShift with AI-powered risk scoring, alert rules, and compliance reporting. Built for Red Hat OpenShift 4.x.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Epilogue:wght@400;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&family=Inter:wght@300;400;500&display=swap" rel="stylesheet">
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg:        #0a0e17;
+  --bg2:       #0f1623;
+  --bg3:       #141d2e;
+  --border:    rgba(255,255,255,0.07);
+  --red:       #ef4444;
+  --red-dim:   rgba(239,68,68,0.15);
+  --blue:      #3b82f6;
+  --blue-dim:  rgba(59,130,246,0.12);
+  --green:     #10b981;
+  --amber:     #f59e0b;
+  --purple:    #a78bfa;
+  --text:      #e2e8f0;
+  --text-dim:  #64748b;
+  --text-mid:  #94a3b8;
+  --mono:      'JetBrains Mono', monospace;
+  --sans:      'Inter', sans-serif;
+  --display:   'Epilogue', sans-serif;
+}
+
+html { scroll-behavior: smooth; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--sans);
+  font-size: 15px;
+  line-height: 1.6;
+  overflow-x: hidden;
+}
+
+/* ── NOISE TEXTURE OVERLAY ── */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.04'/%3E%3C/svg%3E");
+  pointer-events: none;
+  z-index: 0;
+  opacity: 0.4;
+}
+
+/* ── NAV ── */
+nav {
+  position: fixed;
+  top: 0; left: 0; right: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 40px;
+  height: 60px;
+  background: rgba(10,14,23,0.85);
+  backdrop-filter: blur(16px);
+  border-bottom: 1px solid var(--border);
+}
+
+.nav-logo {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  text-decoration: none;
+}
+
+.nav-logo svg { width: 28px; height: 28px; }
+
+.nav-wordmark {
+  font-family: var(--display);
+  font-weight: 800;
+  font-size: 18px;
+  letter-spacing: -0.02em;
+}
+
+.nav-wordmark span:first-child { color: var(--red); }
+.nav-wordmark .dot { color: var(--text-dim); }
+.nav-wordmark span:last-child { color: var(--blue); }
+
+.nav-links {
+  display: flex;
+  align-items: center;
+  gap: 32px;
+  list-style: none;
+}
+
+.nav-links a {
+  color: var(--text-mid);
+  text-decoration: none;
+  font-size: 13px;
+  font-family: var(--mono);
+  letter-spacing: 0.05em;
+  transition: color 0.2s;
+}
+
+.nav-links a:hover { color: var(--text); }
+
+.nav-cta {
+  background: var(--red);
+  color: #fff !important;
+  padding: 6px 16px;
+  border-radius: 4px;
+  font-weight: 600 !important;
+  transition: background 0.2s !important;
+}
+
+.nav-cta:hover { background: #dc2626 !important; }
+
+/* ── HERO ── */
+.hero {
+  position: relative;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 120px 40px 80px;
+  overflow: hidden;
+}
+
+/* Radar background animation */
+.hero-radar {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 700px;
+  height: 700px;
+  pointer-events: none;
+}
+
+.radar-ring {
+  position: absolute;
+  top: 50%; left: 50%;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  border: 1px solid;
+  animation: radar-pulse 4s ease-out infinite;
+}
+
+.radar-ring:nth-child(1) { width: 150px; height: 150px; border-color: rgba(239,68,68,0.3); animation-delay: 0s; }
+.radar-ring:nth-child(2) { width: 280px; height: 280px; border-color: rgba(239,68,68,0.2); animation-delay: 0.5s; }
+.radar-ring:nth-child(3) { width: 420px; height: 420px; border-color: rgba(59,130,246,0.15); animation-delay: 1s; }
+.radar-ring:nth-child(4) { width: 560px; height: 560px; border-color: rgba(59,130,246,0.08); animation-delay: 1.5s; }
+.radar-ring:nth-child(5) { width: 700px; height: 700px; border-color: rgba(59,130,246,0.04); animation-delay: 2s; }
+
+@keyframes radar-pulse {
+  0% { opacity: 1; transform: translate(-50%, -50%) scale(0.95); }
+  100% { opacity: 0; transform: translate(-50%, -50%) scale(1.05); }
+}
+
+.radar-sweep {
+  position: absolute;
+  top: 50%; left: 50%;
+  width: 350px; height: 350px;
+  margin: -175px 0 0 -175px;
+  border-radius: 50%;
+  background: conic-gradient(from 0deg, transparent 70%, rgba(239,68,68,0.15) 100%);
+  animation: sweep 4s linear infinite;
+}
+
+@keyframes sweep { to { transform: rotate(360deg); } }
+
+/* Blip dots */
+.radar-blip {
+  position: absolute;
+  width: 5px; height: 5px;
+  border-radius: 50%;
+  animation: blip 4s ease-in-out infinite;
+}
+
+.radar-blip:nth-child(1) { background: var(--red); top: 28%; left: 62%; animation-delay: 1.2s; }
+.radar-blip:nth-child(2) { background: var(--amber); top: 55%; left: 35%; animation-delay: 2.8s; }
+.radar-blip:nth-child(3) { background: var(--green); top: 68%; left: 58%; animation-delay: 0.6s; }
+.radar-blip:nth-child(4) { background: var(--blue); top: 40%; left: 45%; animation-delay: 3.4s; }
+
+@keyframes blip {
+  0%, 100% { opacity: 0; transform: scale(0); }
+  50% { opacity: 1; transform: scale(1); box-shadow: 0 0 8px currentColor; }
+}
+
+.hero-content {
+  position: relative;
+  z-index: 2;
+  max-width: 780px;
+}
+
+.hero-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--red-dim);
+  border: 1px solid rgba(239,68,68,0.3);
+  border-radius: 100px;
+  padding: 5px 14px;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--red);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  margin-bottom: 28px;
+  animation: fade-up 0.6s ease both;
+}
+
+.hero-badge::before {
+  content: '';
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: var(--red);
+  box-shadow: 0 0 6px var(--red);
+  animation: blink 1.5s ease infinite;
+}
+
+@keyframes blink { 0%,100% { opacity:1; } 50% { opacity:0.3; } }
+
+.hero-title {
+  font-family: var(--display);
+  font-weight: 900;
+  font-size: clamp(42px, 7vw, 80px);
+  line-height: 1.0;
+  letter-spacing: -0.03em;
+  margin-bottom: 24px;
+  animation: fade-up 0.6s ease 0.1s both;
+}
+
+.hero-title .t-red { color: var(--red); }
+.hero-title .t-blue { color: var(--blue); }
+.hero-title .t-dim { color: var(--text-dim); }
+
+.hero-sub {
+  font-size: 18px;
+  color: var(--text-mid);
+  line-height: 1.7;
+  max-width: 560px;
+  margin: 0 auto 40px;
+  font-weight: 300;
+  animation: fade-up 0.6s ease 0.2s both;
+}
+
+.hero-actions {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  animation: fade-up 0.6s ease 0.3s both;
+}
+
+.btn-primary {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--red);
+  color: #fff;
+  text-decoration: none;
+  padding: 12px 28px;
+  border-radius: 6px;
+  font-family: var(--mono);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  transition: all 0.2s;
+  border: 1px solid transparent;
+}
+
+.btn-primary:hover {
+  background: #dc2626;
+  transform: translateY(-1px);
+  box-shadow: 0 8px 24px rgba(239,68,68,0.3);
+}
+
+.btn-secondary {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: transparent;
+  color: var(--text);
+  text-decoration: none;
+  padding: 12px 28px;
+  border-radius: 6px;
+  font-family: var(--mono);
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 0.05em;
+  transition: all 0.2s;
+  border: 1px solid var(--border);
+}
+
+.btn-secondary:hover {
+  border-color: rgba(255,255,255,0.2);
+  background: rgba(255,255,255,0.04);
+}
+
+@keyframes fade-up {
+  from { opacity: 0; transform: translateY(20px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ── STATS BAR ── */
+.stats-bar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  background: var(--bg2);
+  flex-wrap: wrap;
+}
+
+.stat-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 28px 48px;
+  border-right: 1px solid var(--border);
+  flex: 1;
+  min-width: 160px;
+}
+
+.stat-item:last-child { border-right: none; }
+
+.stat-value {
+  font-family: var(--display);
+  font-weight: 800;
+  font-size: 32px;
+  letter-spacing: -0.02em;
+  line-height: 1;
+  margin-bottom: 6px;
+}
+
+.stat-label {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--text-dim);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+/* ── SECTION ── */
+section {
+  position: relative;
+  z-index: 1;
+  padding: 100px 40px;
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+.section-label {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--red);
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  margin-bottom: 12px;
+}
+
+.section-title {
+  font-family: var(--display);
+  font-weight: 800;
+  font-size: clamp(28px, 4vw, 44px);
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+  margin-bottom: 16px;
+}
+
+.section-sub {
+  color: var(--text-mid);
+  font-size: 16px;
+  max-width: 520px;
+  line-height: 1.7;
+  font-weight: 300;
+}
+
+/* ── FEATURE GRID ── */
+.features-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 1px;
+  background: var(--border);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+  margin-top: 60px;
+}
+
+.feature-card {
+  background: var(--bg2);
+  padding: 36px;
+  transition: background 0.2s;
+  position: relative;
+  overflow: hidden;
+}
+
+.feature-card::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 2px;
+  background: var(--accent, var(--red));
+  transform: scaleX(0);
+  transform-origin: left;
+  transition: transform 0.3s;
+}
+
+.feature-card:hover::before { transform: scaleX(1); }
+.feature-card:hover { background: var(--bg3); }
+
+.feature-icon {
+  width: 40px; height: 40px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 20px;
+  font-size: 20px;
+  background: var(--icon-bg, var(--red-dim));
+}
+
+.feature-name {
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: 17px;
+  margin-bottom: 10px;
+  letter-spacing: -0.01em;
+}
+
+.feature-desc {
+  color: var(--text-mid);
+  font-size: 14px;
+  line-height: 1.65;
+  font-weight: 300;
+}
+
+/* ── TERMINAL / CODE BLOCK ── */
+.terminal {
+  background: #080c14;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+  margin-top: 60px;
+}
+
+.terminal-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 20px;
+  background: var(--bg3);
+  border-bottom: 1px solid var(--border);
+}
+
+.term-dot {
+  width: 10px; height: 10px;
+  border-radius: 50%;
+}
+
+.term-dot.red   { background: #ef4444; }
+.term-dot.amber { background: #f59e0b; }
+.term-dot.green { background: #10b981; }
+
+.terminal-label {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-dim);
+  margin-left: 8px;
+  letter-spacing: 0.05em;
+}
+
+.terminal-body {
+  padding: 28px 32px;
+  font-family: var(--mono);
+  font-size: 13px;
+  line-height: 2;
+}
+
+.t-comment { color: #4b5563; }
+.t-cmd     { color: var(--text); }
+.t-flag    { color: var(--blue); }
+.t-str     { color: var(--green); }
+.t-out     { color: var(--text-dim); }
+.t-ok      { color: var(--green); }
+.t-prompt  { color: var(--red); user-select: none; }
+.t-blank   { display: block; height: 10px; }
+
+/* ── HOW IT WORKS ── */
+.flow {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 0;
+  position: relative;
+  margin-top: 60px;
+}
+
+.flow-step {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding: 40px 24px;
+  position: relative;
+}
+
+.flow-step:not(:last-child)::after {
+  content: '→';
+  position: absolute;
+  right: -10px;
+  top: 40px;
+  color: var(--text-dim);
+  font-size: 20px;
+  z-index: 1;
+}
+
+.flow-num {
+  width: 48px; height: 48px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--mono);
+  font-size: 13px;
+  color: var(--text-dim);
+  margin-bottom: 16px;
+  background: var(--bg2);
+}
+
+.flow-name {
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: 14px;
+  margin-bottom: 8px;
+}
+
+.flow-desc {
+  font-size: 12px;
+  color: var(--text-dim);
+  line-height: 1.6;
+  font-family: var(--mono);
+}
+
+/* ── COMPLIANCE ── */
+.compliance-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+  margin-top: 60px;
+}
+
+.compliance-card {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 32px;
+  position: relative;
+  overflow: hidden;
+}
+
+.compliance-card::after {
+  content: '';
+  position: absolute;
+  bottom: 0; right: 0;
+  width: 120px; height: 120px;
+  background: radial-gradient(circle, var(--glow, rgba(239,68,68,0.06)) 0%, transparent 70%);
+}
+
+.compliance-tag {
+  display: inline-block;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  color: var(--tag-color, var(--red));
+  background: var(--tag-bg, var(--red-dim));
+  border: 1px solid var(--tag-border, rgba(239,68,68,0.2));
+  padding: 3px 10px;
+  border-radius: 4px;
+  margin-bottom: 16px;
+}
+
+.compliance-title {
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: 20px;
+  margin-bottom: 12px;
+}
+
+.compliance-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.compliance-list li {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  font-size: 13px;
+  color: var(--text-mid);
+  line-height: 1.5;
+}
+
+.compliance-list li::before {
+  content: '✓';
+  color: var(--green);
+  font-family: var(--mono);
+  font-size: 12px;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+/* ── AI SECTION ── */
+.ai-block {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 60px;
+  align-items: center;
+  margin-top: 60px;
+}
+
+.ai-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(167,139,250,0.1);
+  border: 1px solid rgba(167,139,250,0.2);
+  border-radius: 6px;
+  padding: 6px 14px;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--purple);
+  letter-spacing: 0.08em;
+  margin-bottom: 20px;
+}
+
+.ai-title {
+  font-family: var(--display);
+  font-weight: 800;
+  font-size: 34px;
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+  margin-bottom: 16px;
+}
+
+.ai-desc {
+  color: var(--text-mid);
+  font-size: 15px;
+  line-height: 1.7;
+  font-weight: 300;
+  margin-bottom: 24px;
+}
+
+.ai-points {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.ai-points li {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  font-size: 14px;
+  color: var(--text-mid);
+}
+
+.ai-dot {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: var(--purple);
+  flex-shrink: 0;
+  margin-top: 6px;
+}
+
+.risk-demo {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.risk-header {
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--border);
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-dim);
+  letter-spacing: 0.08em;
+  background: var(--bg3);
+}
+
+.risk-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+  font-family: var(--mono);
+  transition: background 0.15s;
+}
+
+.risk-row:last-child { border-bottom: none; }
+.risk-row:hover { background: var(--bg3); }
+
+.risk-actor { color: var(--blue); flex: 1; }
+.risk-action { color: var(--text-mid); flex: 2; }
+
+.risk-badge {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 3px;
+  letter-spacing: 0.08em;
+}
+
+.risk-high   { background: rgba(239,68,68,0.15); color: var(--red); border: 1px solid rgba(239,68,68,0.3); }
+.risk-low    { background: rgba(16,185,129,0.1);  color: var(--green); border: 1px solid rgba(16,185,129,0.2); }
+.risk-medium { background: rgba(245,158,11,0.1);  color: var(--amber); border: 1px solid rgba(245,158,11,0.2); }
+
+/* ── INSTALL ── */
+.install-section {
+  background: var(--bg2);
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+
+.install-section section {
+  max-width: 900px;
+}
+
+.install-tabs {
+  display: flex;
+  gap: 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  margin-bottom: 24px;
+  width: fit-content;
+}
+
+.tab-btn {
+  padding: 8px 24px;
+  font-family: var(--mono);
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  color: var(--text-dim);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  transition: all 0.2s;
+  border-right: 1px solid var(--border);
+}
+
+.tab-btn:last-child { border-right: none; }
+.tab-btn.active { background: var(--red); color: #fff; }
+.tab-btn:hover:not(.active) { color: var(--text); background: var(--bg3); }
+
+/* ── CTA ── */
+.cta-section {
+  text-align: center;
+  padding: 120px 40px;
+  position: relative;
+  overflow: hidden;
+}
+
+.cta-glow {
+  position: absolute;
+  top: 50%; left: 50%;
+  transform: translate(-50%, -50%);
+  width: 600px; height: 300px;
+  background: radial-gradient(ellipse, rgba(239,68,68,0.08) 0%, transparent 70%);
+  pointer-events: none;
+}
+
+.cta-title {
+  font-family: var(--display);
+  font-weight: 900;
+  font-size: clamp(32px, 5vw, 56px);
+  letter-spacing: -0.03em;
+  line-height: 1.05;
+  margin-bottom: 20px;
+  position: relative;
+}
+
+.cta-sub {
+  color: var(--text-mid);
+  font-size: 16px;
+  margin-bottom: 40px;
+  font-weight: 300;
+  position: relative;
+}
+
+/* ── FOOTER ── */
+footer {
+  border-top: 1px solid var(--border);
+  padding: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 20px;
+}
+
+.footer-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.footer-wordmark {
+  font-family: var(--display);
+  font-weight: 800;
+  font-size: 16px;
+}
+
+.footer-wordmark span:first-child { color: var(--red); }
+.footer-wordmark span:last-child  { color: var(--blue); }
+
+.footer-copy {
+  font-size: 12px;
+  color: var(--text-dim);
+  font-family: var(--mono);
+}
+
+.footer-links {
+  display: flex;
+  gap: 24px;
+  list-style: none;
+}
+
+.footer-links a {
+  color: var(--text-dim);
+  text-decoration: none;
+  font-size: 12px;
+  font-family: var(--mono);
+  transition: color 0.2s;
+}
+
+.footer-links a:hover { color: var(--text); }
+
+/* ── DIVIDER ── */
+.full-bleed {
+  max-width: 100% !important;
+  padding-left: 0 !important;
+  padding-right: 0 !important;
+}
+
+/* ── SCROLL REVEAL ── */
+.reveal {
+  opacity: 0;
+  transform: translateY(24px);
+  transition: opacity 0.6s ease, transform 0.6s ease;
+}
+
+.reveal.visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+</style>
+</head>
+<body>
+
+<!-- NAV -->
+<nav>
+  <a href="#" class="nav-logo">
+    <svg viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <circle cx="20" cy="20" r="18" stroke="#ef4444" stroke-width="1.5" opacity="0.4"/>
+      <circle cx="20" cy="20" r="12" stroke="#3b82f6" stroke-width="1" opacity="0.4"/>
+      <circle cx="20" cy="20" r="6"  stroke="#ef4444" stroke-width="1" opacity="0.6"/>
+      <circle cx="20" cy="20" r="2"  fill="#ef4444"/>
+      <line x1="20" y1="20" x2="32" y2="8" stroke="#ef4444" stroke-width="1.5" opacity="0.8"/>
+      <circle cx="31" cy="10" r="2" fill="#3b82f6" opacity="0.9"/>
+      <circle cx="14" cy="28" r="1.5" fill="#f59e0b" opacity="0.7"/>
+    </svg>
+    <div class="nav-wordmark"><span>audit</span><span class="dot">·</span><span>radar</span></div>
+  </a>
+  <ul class="nav-links">
+    <li><a href="#features">features</a></li>
+    <li><a href="#how-it-works">how it works</a></li>
+    <li><a href="#ai">AI scoring</a></li>
+    <li><a href="#install">install</a></li>
+    <li><a href="https://github.com/vsenatorov/auditvision" target="_blank">github</a></li>
+    <li><a href="https://github.com/vsenatorov/auditvision" class="nav-cta" target="_blank">get started →</a></li>
+  </ul>
+</nav>
+
+<!-- HERO -->
+<div class="hero">
+  <div class="hero-radar">
+    <div class="radar-ring"></div>
+    <div class="radar-ring"></div>
+    <div class="radar-ring"></div>
+    <div class="radar-ring"></div>
+    <div class="radar-ring"></div>
+    <div class="radar-sweep"></div>
+    <div class="radar-blip"></div>
+    <div class="radar-blip"></div>
+    <div class="radar-blip"></div>
+    <div class="radar-blip"></div>
+  </div>
+  <div class="hero-content">
+    <div class="hero-badge">live · real-time audit explorer</div>
+    <h1 class="hero-title">
+      Know exactly<br>
+      <span class="t-red">who</span> did <span class="t-blue">what</span><br>
+      <span class="t-dim">in your cluster</span>
+    </h1>
+    <p class="hero-sub">Real-time audit log explorer for OpenShift with AI-powered risk scoring, alert rules, and compliance reporting. Built for Red Hat OpenShift 4.x.</p>
+    <div class="hero-actions">
+      <a href="https://github.com/vsenatorov/auditvision" class="btn-primary" target="_blank">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+        View on GitHub
+      </a>
+      <a href="#install" class="btn-secondary">Quick install →</a>
+    </div>
+  </div>
+</div>
+
+<!-- STATS -->
+<div class="stats-bar full-bleed">
+  <div class="stat-item">
+    <div class="stat-value" style="color:var(--red)">4</div>
+    <div class="stat-label">microservices</div>
+  </div>
+  <div class="stat-item">
+    <div class="stat-value" style="color:var(--blue)">1</div>
+    <div class="stat-label">helm install</div>
+  </div>
+  <div class="stat-item">
+    <div class="stat-value" style="color:var(--green)">100%</div>
+    <div class="stat-label">on-cluster AI</div>
+  </div>
+  <div class="stat-item">
+    <div class="stat-value" style="color:var(--amber)">30s</div>
+    <div class="stat-label">alert latency</div>
+  </div>
+  <div class="stat-item">
+    <div class="stat-value" style="color:var(--purple)">APL2</div>
+    <div class="stat-label">open source</div>
+  </div>
+</div>
+
+<!-- FEATURES -->
+<section id="features">
+  <div class="reveal">
+    <div class="section-label">// capabilities</div>
+    <h2 class="section-title">Everything you need to<br>audit your cluster</h2>
+    <p class="section-sub">From raw API events to compliance reports — Audit Radar covers the full audit lifecycle.</p>
+  </div>
+
+  <div class="features-grid reveal">
+    <div class="feature-card" style="--accent:var(--red); --icon-bg:var(--red-dim)">
+      <div class="feature-icon">⚡</div>
+      <div class="feature-name">Live Event Stream</div>
+      <div class="feature-desc">Real-time feed of all Kubernetes API audit events. Filter by actor, namespace, verb, resource, risk level, result code. Stream updates every second without page refresh.</div>
+    </div>
+    <div class="feature-card" style="--accent:var(--purple); --icon-bg:rgba(167,139,250,0.1)">
+      <div class="feature-icon">🧠</div>
+      <div class="feature-name">AI Risk Scoring</div>
+      <div class="feature-desc">Every event scored HIGH / MEDIUM / LOW by IBM Granite 3.2 running locally via Ollama. No data leaves your cluster. Strategic choice for Red Hat environments.</div>
+    </div>
+    <div class="feature-card" style="--accent:var(--amber); --icon-bg:rgba(245,158,11,0.1)">
+      <div class="feature-icon">🔔</div>
+      <div class="feature-name">Alert Rules</div>
+      <div class="feature-desc">Configurable webhook alerts to Slack and email. Built-in rules for HIGH risk events and human DELETE actions. Custom trigger conditions via UI — no restart required.</div>
+    </div>
+    <div class="feature-card" style="--accent:var(--blue); --icon-bg:var(--blue-dim)">
+      <div class="feature-icon">🔑</div>
+      <div class="feature-name">OCP OAuth2 SSO</div>
+      <div class="feature-desc">Single sign-on with OpenShift groups. Three-tier role model: admin, editor, viewer. redirectURIs auto-synced on startup — zero manual OAuth configuration.</div>
+    </div>
+    <div class="feature-card" style="--accent:var(--green); --icon-bg:rgba(16,185,129,0.1)">
+      <div class="feature-icon">🚫</div>
+      <div class="feature-name">Exclusion Filters</div>
+      <div class="feature-desc">Drop noisy service account traffic before it hits the database. Wildcard actor matching. Reloaded every 30s — no pod restarts. Keeps your database lean and signal clean.</div>
+    </div>
+    <div class="feature-card" style="--accent:var(--red); --icon-bg:var(--red-dim)">
+      <div class="feature-icon">📊</div>
+      <div class="feature-name">Summary Dashboard</div>
+      <div class="feature-desc">Cluster overview with 24h activity chart, top actors, top resources, verb breakdown, namespace heatmap, and source distribution. Spot anomalies instantly.</div>
+    </div>
+    <div class="feature-card" style="--accent:var(--blue); --icon-bg:var(--blue-dim)">
+      <div class="feature-icon">📁</div>
+      <div class="feature-name">CSV Export</div>
+      <div class="feature-desc">Export any filtered view to CSV for compliance reporting, SIEM ingestion, or offline analysis. One click, respects all active filters.</div>
+    </div>
+    <div class="feature-card" style="--accent:var(--amber); --icon-bg:rgba(245,158,11,0.1)">
+      <div class="feature-icon">🔍</div>
+      <div class="feature-name">Field-Level Diffs</div>
+      <div class="feature-desc">With WriteRequestBodies audit policy enabled, see exactly what changed — replica count, image tags, environment variables. Full request body capture.</div>
+    </div>
+    <div class="feature-card" style="--accent:var(--green); --icon-bg:rgba(16,185,129,0.1)">
+      <div class="feature-icon">🛡️</div>
+      <div class="feature-name">SOC2 / PCI Ready</div>
+      <div class="feature-desc">Full audit trail of human and system actions across all namespaces. Retention policies, role-based access, immutable event log from kube-apiserver.</div>
+    </div>
+  </div>
+</section>
+
+<!-- HOW IT WORKS -->
+<div style="background:var(--bg2); border-top:1px solid var(--border); border-bottom:1px solid var(--border);">
+  <section id="how-it-works">
+    <div class="reveal">
+      <div class="section-label">// architecture</div>
+      <h2 class="section-title">How it works</h2>
+      <p class="section-sub">Five components, one namespace, zero external dependencies.</p>
+    </div>
+    <div class="flow reveal">
+      <div class="flow-step">
+        <div class="flow-num">01</div>
+        <div class="flow-name">kube-apiserver</div>
+        <div class="flow-desc">Emits audit events for every API call</div>
+      </div>
+      <div class="flow-step">
+        <div class="flow-num">02</div>
+        <div class="flow-name">CLF</div>
+        <div class="flow-desc">OpenShift Logging forwards to collector via HTTP</div>
+      </div>
+      <div class="flow-step">
+        <div class="flow-num">03</div>
+        <div class="flow-name">Collector</div>
+        <div class="flow-desc">Normalizes, filters exclusions, stores in PostgreSQL</div>
+      </div>
+      <div class="flow-step">
+        <div class="flow-num">04</div>
+        <div class="flow-name">Analyzer</div>
+        <div class="flow-desc">Granite 3.2 scores each event HIGH / MED / LOW</div>
+      </div>
+      <div class="flow-step">
+        <div class="flow-num">05</div>
+        <div class="flow-name">UI + Alerter</div>
+        <div class="flow-desc">Live stream, dashboard, alerts to Slack / email</div>
+      </div>
+    </div>
+  </section>
+</div>
+
+<!-- AI SECTION -->
+<section id="ai">
+  <div class="ai-block reveal">
+    <div>
+      <div class="ai-badge">
+        <span>🤖</span> IBM Granite 3.2 · Ollama · On-cluster
+      </div>
+      <h2 class="ai-title">AI that stays<br>inside your cluster</h2>
+      <p class="ai-desc">Every audit event is scored by IBM Granite 3.2 — a deliberate choice for Red Hat environments. The model runs locally via Ollama. No event ever leaves your cluster.</p>
+      <ul class="ai-points">
+        <li><span class="ai-dot"></span>Granite 3.2:2b pulled once at deploy time (~1.5GB)</li>
+        <li><span class="ai-dot"></span>Batch scoring: 20 events every 30 seconds</li>
+        <li><span class="ai-dot"></span>Deterministic temperature (0.1) for consistent results</li>
+        <li><span class="ai-dot"></span>Works without GPU — CPU inference on any node</li>
+        <li><span class="ai-dot"></span>Disable with a single Helm flag if not needed</li>
+      </ul>
+    </div>
+    <div class="risk-demo reveal">
+      <div class="risk-header">RECENT EVENTS · AI SCORED</div>
+      <div class="risk-row">
+        <span class="risk-actor">admin</span>
+        <span class="risk-action">delete secrets/db-credentials</span>
+        <span class="risk-badge risk-high">HIGH</span>
+      </div>
+      <div class="risk-row">
+        <span class="risk-actor">admin</span>
+        <span class="risk-action">patch deployment/api replicas 3→1</span>
+        <span class="risk-badge risk-medium">MED</span>
+      </div>
+      <div class="risk-row">
+        <span class="risk-actor">system:node:worker-1</span>
+        <span class="risk-action">update node/status</span>
+        <span class="risk-badge risk-low">LOW</span>
+      </div>
+      <div class="risk-row">
+        <span class="risk-actor">admin</span>
+        <span class="risk-action">create rolebinding/cluster-admin</span>
+        <span class="risk-badge risk-high">HIGH</span>
+      </div>
+      <div class="risk-row">
+        <span class="risk-actor">serviceaccount:monitor</span>
+        <span class="risk-action">list pods/metrics</span>
+        <span class="risk-badge risk-low">LOW</span>
+      </div>
+      <div class="risk-row">
+        <span class="risk-actor">admin</span>
+        <span class="risk-action">get secrets/prod-tls</span>
+        <span class="risk-badge risk-medium">MED</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- COMPLIANCE -->
+<div style="background:var(--bg2); border-top:1px solid var(--border); border-bottom:1px solid var(--border);">
+<section>
+  <div class="reveal">
+    <div class="section-label">// compliance</div>
+    <h2 class="section-title">Built for compliance teams</h2>
+    <p class="section-sub">Audit Radar provides the immutable audit trail that SOC2 and PCI-DSS auditors expect.</p>
+  </div>
+  <div class="compliance-grid reveal">
+    <div class="compliance-card" style="--glow:rgba(239,68,68,0.08)">
+      <div class="compliance-tag" style="--tag-color:var(--red);--tag-bg:var(--red-dim);--tag-border:rgba(239,68,68,0.2)">SOC 2</div>
+      <div class="compliance-title">Type II Audit Support</div>
+      <ul class="compliance-list">
+        <li>Full actor identity on every API action</li>
+        <li>Immutable event source from kube-apiserver</li>
+        <li>Role-based access to audit data</li>
+        <li>Configurable retention policies</li>
+        <li>CSV export for auditor review</li>
+      </ul>
+    </div>
+    <div class="compliance-card" style="--glow:rgba(59,130,246,0.06)">
+      <div class="compliance-tag" style="--tag-color:var(--blue);--tag-bg:var(--blue-dim);--tag-border:rgba(59,130,246,0.2)">PCI DSS</div>
+      <div class="compliance-title">Access Control Logging</div>
+      <ul class="compliance-list">
+        <li>All secret access events captured</li>
+        <li>Human DELETE actions alerted in real-time</li>
+        <li>Namespace-level visibility</li>
+        <li>OCP OAuth2 — authenticated actor on every event</li>
+        <li>Alert on privilege escalation patterns</li>
+      </ul>
+    </div>
+  </div>
+</section>
+</div>
+
+<!-- INSTALL -->
+<div class="install-section">
+  <section id="install">
+    <div class="reveal">
+      <div class="section-label">// quick start</div>
+      <h2 class="section-title">One command to deploy</h2>
+      <p class="section-sub">Helm chart handles everything — secrets, RBAC, OAuthClient, groups. No manual configuration required.</p>
+    </div>
+
+    <!-- Prerequisites -->
+    <div class="reveal" style="margin-top:48px; margin-bottom:32px;">
+      <div style="font-family:var(--mono);font-size:11px;color:var(--text-dim);letter-spacing:0.1em;text-transform:uppercase;margin-bottom:20px;">Prerequisites</div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px;">
+        <div style="background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:18px 20px;display:flex;align-items:flex-start;gap:12px;">
+          <span style="color:var(--green);font-family:var(--mono);font-size:13px;margin-top:1px;">✓</span>
+          <div>
+            <div style="font-family:var(--mono);font-size:12px;color:var(--text);margin-bottom:4px;">OpenShift 4.x + cluster-admin</div>
+            <div style="font-size:12px;color:var(--text-dim);">Any OCP 4.x cluster with cluster-admin access</div>
+          </div>
+        </div>
+        <div style="background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:18px 20px;display:flex;align-items:flex-start;gap:12px;">
+          <span style="color:var(--green);font-family:var(--mono);font-size:13px;margin-top:1px;">✓</span>
+          <div>
+            <div style="font-family:var(--mono);font-size:12px;color:var(--text);margin-bottom:4px;">Helm 3.x</div>
+            <div style="font-size:12px;color:var(--text-dim);font-family:var(--mono);">curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash</div>
+          </div>
+        </div>
+        <div style="background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:18px 20px;display:flex;align-items:flex-start;gap:12px;">
+          <span style="color:var(--green);font-family:var(--mono);font-size:13px;margin-top:1px;">✓</span>
+          <div>
+            <div style="font-family:var(--mono);font-size:12px;color:var(--text);margin-bottom:4px;">OpenShift Logging Operator</div>
+            <div style="font-size:12px;color:var(--text-dim);font-family:var(--mono);">oc apply -f deploy/04b-logging-operator.yaml</div>
+          </div>
+        </div>
+        <div style="background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:18px 20px;display:flex;align-items:flex-start;gap:12px;">
+          <span style="color:var(--amber);font-family:var(--mono);font-size:13px;margin-top:1px;">⚠</span>
+          <div>
+            <div style="font-family:var(--mono);font-size:12px;color:var(--text);margin-bottom:4px;">Audit Policy (optional)</div>
+            <div style="font-size:12px;color:var(--text-dim);">Enables field-level diffs. Triggers kube-apiserver rolling restart (~5-10 min, cluster stays available)</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- The one command -->
+    <div class="terminal reveal">
+      <div class="terminal-bar">
+        <div class="term-dot red"></div>
+        <div class="term-dot amber"></div>
+        <div class="term-dot green"></div>
+        <span class="terminal-label">bash · the only command you need</span>
+      </div>
+      <div class="terminal-body">
+        <span class="t-comment"># Deploy — all secrets, RBAC, OAuthClient, groups created automatically</span><br>
+        <span class="t-prompt">$ </span><span class="t-cmd">helm install audit-radar ./Helm/audit-radar</span><br>
+        <span class="t-blank"></span>
+        <span class="t-out">NAME: audit-radar</span><br>
+        <span class="t-out">LAST DEPLOYED: Thu Mar 12 09:36:59 2026</span><br>
+        <span class="t-out">STATUS: <span class="t-ok">deployed</span></span><br>
+        <span class="t-blank"></span>
+        <span class="t-comment"># Then add yourself as admin and open the UI</span><br>
+        <span class="t-prompt">$ </span><span class="t-cmd">oc adm groups add-users audit-radar-admins <span class="t-str">your-username</span></span><br>
+        <span class="t-prompt">$ </span><span class="t-cmd">oc get route audit-ui <span class="t-flag">-n</span> audit-vision</span><br>
+        <span class="t-out">audit-ui-audit-vision.apps.<span class="t-str">your-cluster</span>.com  ✓</span>
+      </div>
+    </div>
+  </section>
+</div>
+
+<!-- CTA -->
+<div class="cta-section">
+  <div class="cta-glow"></div>
+  <h2 class="cta-title reveal">Start auditing your<br><span style="color:var(--red)">cluster</span> today</h2>
+  <p class="cta-sub reveal">Open source. Apache 2.0. All images public on Docker Hub.</p>
+  <div class="hero-actions reveal">
+    <a href="https://github.com/vsenatorov/auditvision" class="btn-primary" target="_blank">
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+      View on GitHub
+    </a>
+    <a href="https://github.com/vsenatorov/auditvision/blob/main/README.md" class="btn-secondary" target="_blank">Read the docs →</a>
+  </div>
+</div>
+
+<!-- FOOTER -->
+<footer>
+  <div class="footer-left">
+    <div class="footer-wordmark"><span>audit</span>·<span>radar</span></div>
+    <span class="footer-copy">© 2026 Viktor Senatorov · Apache 2.0</span>
+  </div>
+  <ul class="footer-links">
+    <li><a href="https://github.com/vsenatorov/auditvision" target="_blank">github</a></li>
+    <li><a href="https://github.com/vsenatorov/auditvision/blob/main/README.md" target="_blank">docs</a></li>
+    <li><a href="https://hub.docker.com/u/hybrid2k3" target="_blank">docker hub</a></li>
+    <li><a href="https://github.com/vsenatorov/auditvision/blob/main/LICENSE" target="_blank">license</a></li>
+  </ul>
+</footer>
+
+<script>
+// Scroll reveal
+const observer = new IntersectionObserver((entries) => {
+  entries.forEach(e => {
+    if (e.isIntersecting) {
+      e.target.classList.add('visible');
+      observer.unobserve(e.target);
+    }
+  });
+}, { threshold: 0.1 });
+
+document.querySelectorAll('.reveal').forEach(el => observer.observe(el));
+</script>
+</body>
+</html>
+
