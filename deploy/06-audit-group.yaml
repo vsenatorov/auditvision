@@ -1,0 +1,12 @@
+# Group for users that get WriteRequestBodies audit level.
+# Add any user that should have full request body logging here.
+#
+# Apply:
+#   oc apply -f 06-audit-group.yaml
+---
+apiVersion: user.openshift.io/v1
+kind: Group
+metadata:
+  name: audit-write-users
+users:
+- admin

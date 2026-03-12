@@ -1,0 +1,79 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: audit-ui
+  namespace: audit-vision
+  labels:
+    app: audit-ui
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: audit-ui
+  template:
+    metadata:
+      labels:
+        app: audit-ui
+    spec:
+      serviceAccountName: audit-ui
+      containers:
+      - name: ui
+        image: docker.io/hybrid2k3/audit-ui:latest
+        imagePullPolicy: Always
+        ports:
+        - name: http
+          containerPort: 8080
+        env:
+        - name: LISTEN_ADDR
+          value: ":8080"
+        - name: DATABASE_URL
+          valueFrom:
+            secretKeyRef:
+              name: postgres-secret
+              key: DATABASE_URL
+        readinessProbe:
+          httpGet:
+            path: /healthz
+            port: 8080
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        resources:
+          requests:
+            cpu: 50m
+            memory: 32Mi
+          limits:
+            cpu: 200m
+            memory: 128Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: audit-ui
+  namespace: audit-vision
+spec:
+  selector:
+    app: audit-ui
+  ports:
+  - port: 8080
+    targetPort: 8080
+---
+# k8s Ingress (replaces OpenShift Route)
+# Traefik is built into k3s — no extra setup needed
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: audit-ui
+  namespace: audit-vision
+spec:
+  rules:
+  - host: audit.192.168.10.30.nip.io
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: audit-ui
+            port:
+              number: 8080

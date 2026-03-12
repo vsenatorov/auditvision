@@ -1,0 +1,52 @@
+---
+# OAuthClient — registers audit-radar as an OAuth application in OpenShift
+# Apply once: oc apply -f 12-oauth.yaml
+apiVersion: oauth.openshift.io/v1
+kind: OAuthClient
+metadata:
+  name: audit-radar
+secret: "REPLACE_WITH_RANDOM_SECRET"   # openssl rand -hex 32
+redirectURIs:
+  - "https://audit-ui-audit-vision.apps.cluster-bj5zl.dynamic.redhatworkshops.io/auth/callback"
+grantMethod: auto
+---
+# Groups — create these in OCP and add users
+# oc adm groups new audit-radar-admins
+# oc adm groups new audit-radar-editors
+# oc adm groups add-users audit-radar-admins <username>
+# oc adm groups add-users audit-radar-editors <username>
+---
+# ConfigMap patch — add auth settings to audit-ui deployment
+# oc set env deployment/audit-ui -n audit-vision \
+#   AUTH_ENABLED=true \
+#   AUTH_OCP_URL=https://oauth-openshift.apps.cluster-bj5zl.dynamic.redhatworkshops.io \
+#   AUTH_CLIENT_ID=audit-radar \
+#   AUTH_REDIRECT_URL=https://audit-ui-audit-vision.apps.cluster-bj5zl.dynamic.redhatworkshops.io/auth/callback \
+#   AUTH_ADMIN_GROUP=audit-radar-admins \
+#   AUTH_EDITOR_GROUP=audit-radar-editors
+---
+# Secret for OAuth client secret
+apiVersion: v1
+kind: Secret
+metadata:
+  name: audit-ui-oauth-secret
+  namespace: audit-vision
+type: Opaque
+stringData:
+  AUTH_CLIENT_SECRET: "REPLACE_WITH_RANDOM_SECRET"  # same as OAuthClient.secret
+---
+# Secret for basic auth fallback (username/password login)
+# Change the values before applying, or update later:
+#   oc create secret generic audit-ui-basic-secret \
+#     --from-literal=AUTH_BASIC_USER=admin \
+#     --from-literal=AUTH_BASIC_PASS=changeme \
+#     -n audit-vision --dry-run=client -o yaml | oc apply -f -
+apiVersion: v1
+kind: Secret
+metadata:
+  name: audit-ui-basic-secret
+  namespace: audit-vision
+type: Opaque
+stringData:
+  AUTH_BASIC_USER: "admin"
+  AUTH_BASIC_PASS: "changeme"

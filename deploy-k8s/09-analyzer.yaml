@@ -1,0 +1,49 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: audit-analyzer
+  namespace: audit-vision
+  labels:
+    app: audit-analyzer
+    app.kubernetes.io/part-of: audit-vision
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: audit-analyzer
+  template:
+    metadata:
+      labels:
+        app: audit-analyzer
+    spec:
+      containers:
+      - name: analyzer
+        image: docker.io/hybrid2k3/audit-analyzer:latest
+        imagePullPolicy: Always
+        env:
+        - name: DATABASE_URL
+          valueFrom:
+            secretKeyRef:
+              name: postgres-secret
+              key: DATABASE_URL
+        - name: OLLAMA_URL
+          value: "http://ollama:11434"
+        - name: OLLAMA_MODEL
+          value: "granite3.2:2b"
+        - name: INTERVAL_SEC
+          value: "30"
+        - name: BATCH_SIZE
+          value: "5"
+        resources:
+          requests:
+            cpu: 50m
+            memory: 64Mi
+          limits:
+            cpu: 200m
+            memory: 128Mi
+        securityContext:
+          runAsNonRoot: true
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop: [ALL]

@@ -1,0 +1,13 @@
+---
+# OAuthClient — registers audit-radar as an OAuth application in OpenShift.
+# redirectURIs are auto-synced by the UI pod on startup via syncOAuthRedirectURI.
+apiVersion: oauth.openshift.io/v1
+kind: OAuthClient
+metadata:
+  name: {{ .Values.ui.auth.clientId }}
+  labels:
+    {{- include "audit-radar.labels" . | nindent 4 }}
+secret: {{ include "audit-radar.oauthSecret" . }}
+redirectURIs:
+  - "https://audit-ui-{{ .Values.namespace }}.apps.example.com/auth/callback"
+grantMethod: auto

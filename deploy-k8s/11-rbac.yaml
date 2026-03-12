@@ -1,0 +1,39 @@
+# ServiceAccount for the UI pod
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: audit-ui
+  namespace: audit-vision
+
+---
+# Allow UI to read and patch the alerter ConfigMap only
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: audit-ui-configmap
+  namespace: audit-vision
+rules:
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    resourceNames: ["audit-alerter-config"]
+    verbs: ["get", "patch"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: audit-ui-configmap
+  namespace: audit-vision
+subjects:
+  - kind: ServiceAccount
+    name: audit-ui
+    namespace: audit-vision
+roleRef:
+  kind: Role
+  apiGroup: rbac.authorization.k8s.io
+  name: audit-ui-configmap
+
+---
+# Patch UI deployment to use the ServiceAccount
+# Run: kubectl patch deployment audit-ui -n audit-vision \
+#   --type=merge -p '{"spec":{"template":{"spec":{"serviceAccountName":"audit-ui"}}}}'

@@ -1,0 +1,8 @@
+# /etc/rancher/k3s/config.yaml
+# K3s server configuration — enables audit logging
+kube-apiserver-arg:
+  - "audit-log-path=/var/log/k3s-audit.log"
+  - "audit-policy-file=/etc/rancher/k3s/audit-policy.yaml"
+  - "audit-log-maxage=7"
+  - "audit-log-maxbackup=3"
+  - "audit-log-maxsize=100"

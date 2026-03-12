@@ -1,0 +1,127 @@
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: audit-collector
+  namespace: audit-vision
+---
+# ClusterRole to read deployments across all namespaces (for snapshot priming)
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: audit-vision-collector
+rules:
+- apiGroups: [apps]
+  resources: [deployments, replicasets, statefulsets, daemonsets]
+  verbs: [get, list, watch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: audit-vision-collector
+subjects:
+- kind: ServiceAccount
+  name: audit-collector
+  namespace: audit-vision
+roleRef:
+  kind: ClusterRole
+  name: audit-vision-collector
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: audit-collector
+  namespace: audit-vision
+  labels:
+    app: audit-collector
+    app.kubernetes.io/part-of: audit-vision
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: audit-collector
+  template:
+    metadata:
+      labels:
+        app: audit-collector
+    spec:
+      serviceAccountName: audit-collector
+      containers:
+      - name: collector
+        image: docker.io/hybrid2k3/audit-collector:latest
+        imagePullPolicy: Always
+        ports:
+        - name: webhook
+          containerPort: 8443
+          protocol: TCP
+        - name: vector
+          containerPort: 8080
+          protocol: TCP
+        env:
+        - name: LISTEN_ADDR
+          value: ":8443"
+        - name: DATABASE_URL
+          valueFrom:
+            secretKeyRef:
+              name: postgres-secret
+              key: DATABASE_URL
+        - name: TLS_CERT_FILE
+          value: /tls/tls.crt
+        - name: TLS_KEY_FILE
+          value: /tls/tls.key
+        - name: RETENTION_DAYS
+          value: "30"   # change to 7, 14, 90 etc. or "0" to disable
+        volumeMounts:
+        - name: tls
+          mountPath: /tls
+          readOnly: true
+        readinessProbe:
+          httpGet:
+            path: /healthz
+            port: 8443
+            scheme: HTTPS
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: 8443
+            scheme: HTTPS
+          initialDelaySeconds: 15
+          periodSeconds: 20
+        resources:
+          requests:
+            cpu: 50m
+            memory: 64Mi
+          limits:
+            cpu: 500m
+            memory: 256Mi
+        securityContext:
+          runAsNonRoot: true
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop: [ALL]
+      volumes:
+      - name: tls
+        secret:
+          secretName: audit-collector-tls   # created by cert-manager or manually
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: audit-collector
+  namespace: audit-vision
+  annotations:
+    # OpenShift service serving cert — auto-generates TLS cert
+    service.beta.openshift.io/serving-cert-secret-name: audit-collector-tls
+spec:
+  selector:
+    app: audit-collector
+  ports:
+  - name: webhook
+    port: 443
+    targetPort: 8443
+  - name: vector
+    port: 8080
+    targetPort: 8080

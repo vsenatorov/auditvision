@@ -1,0 +1,64 @@
+# ClusterLogForwarder — forwards audit logs from all kube-apiserver /
+# openshift-apiserver nodes to audit-collector via Vector HTTP sink.
+#
+# Prerequisites:
+#   - Red Hat OpenShift Logging operator installed (04b-logging-operator.yaml)
+#
+# Apply:
+#   oc apply -f 05-clf.yaml
+#
+# Verify:
+#   oc get clusterlogforwarder audit-vision -n openshift-logging
+#   oc get pods -n openshift-logging -l app.kubernetes.io/instance=audit-vision
+---
+# ServiceAccount must exist in openshift-logging namespace (CLF requirement)
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: audit-vision-collector
+  namespace: openshift-logging
+---
+# ClusterRoleBinding grants the SA permission to collect audit logs
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: audit-vision-collector-audit-logs
+subjects:
+- kind: ServiceAccount
+  name: audit-vision-collector
+  namespace: openshift-logging
+roleRef:
+  kind: ClusterRole
+  name: collect-audit-logs
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: observability.openshift.io/v1
+kind: ClusterLogForwarder
+metadata:
+  name: audit-vision
+  namespace: openshift-logging
+spec:
+  serviceAccount:
+    name: audit-vision-collector
+  inputs:
+  - name: audit-logs
+    type: audit
+    audit:
+      sources:
+      - kubeAPI
+      - openshiftAPI
+  outputs:
+  - name: audit-vision-http
+    type: http
+    http:
+      # Plain HTTP on :8080 — no TLS needed inside the cluster
+      url: http://audit-collector.audit-vision.svc:8080/vector-sink
+      method: POST
+      headers:
+        Content-Type: application/json
+  pipelines:
+  - name: audit-to-vision
+    inputRefs:
+    - audit-logs
+    outputRefs:
+    - audit-vision-http

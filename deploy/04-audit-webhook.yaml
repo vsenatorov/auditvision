@@ -1,0 +1,71 @@
+# This ConfigMap holds the audit webhook configuration.
+# The operator will mount this and patch the APIServer CR.
+#
+# For manual POC setup:
+#   1. Apply this ConfigMap
+#   2. Run: oc patch apiserver cluster --type=merge --patch-file=audit-webhook-patch.yaml
+#
+# kube-apiserver will POST EventList batches to /audit-sink on every audit event.
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: audit-webhook-config
+  namespace: audit-vision
+data:
+  webhook-config.yaml: |
+    apiVersion: v1
+    kind: Config
+    clusters:
+    - name: audit-vision-collector
+      cluster:
+        # Service DNS: <service>.<namespace>.svc
+        server: https://audit-collector.audit-vision.svc/audit-sink
+        # CA bundle injected by OpenShift service serving cert infrastructure
+        certificate-authority: /etc/kubernetes/static-pod-resources/configmaps/audit-webhook-ca/ca-bundle.crt
+    contexts:
+    - name: audit-vision
+      context:
+        cluster: audit-vision-collector
+        user: ""
+    current-context: audit-vision
+    users: []
+
+---
+# Patch to apply to the cluster APIServer CR.
+# Save as audit-webhook-patch.yaml and apply with:
+#   oc patch apiserver cluster --type=merge --patch-file=audit-webhook-patch.yaml
+#
+# NOTE: This triggers a rolling restart of all kube-apiserver pods (~5-10 min).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: audit-webhook-patch-instructions
+  namespace: audit-vision
+data:
+  README: |
+    Apply the audit webhook to the cluster APIServer:
+
+      oc create configmap audit-webhook-kubeconfig \
+        --from-file=kubeconfig=/path/to/webhook-config.yaml \
+        -n openshift-config
+
+      oc patch apiserver cluster --type=merge -p '{
+        "spec": {
+          "audit": {
+            "profile": "WriteRequestBodies"
+          }
+        }
+      }'
+
+    The operator will automate all of this.
+
+  audit-webhook-patch.yaml: |
+    spec:
+      audit:
+        profile: WriteRequestBodies
+        webhook:
+          throttle:
+            qps: 10
+            burst: 15
+          initialBackoff: 100ms

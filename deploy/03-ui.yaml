@@ -1,0 +1,114 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: audit-ui
+  namespace: audit-vision
+  labels:
+    app: audit-ui
+    app.kubernetes.io/part-of: audit-vision
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: audit-ui
+  template:
+    metadata:
+      labels:
+        app: audit-ui
+    spec:
+      serviceAccountName: audit-ui
+      containers:
+      - name: ui
+        image: docker.io/hybrid2k3/audit-ui:latest
+        imagePullPolicy: Always
+        ports:
+        - name: http
+          containerPort: 8080
+        env:
+        - name: LISTEN_ADDR
+          value: ":8080"
+        - name: DATABASE_URL
+          valueFrom:
+            secretKeyRef:
+              name: postgres-secret
+              key: DATABASE_URL
+        # ── Auth ──────────────────────────────────────────────────────────
+        - name: AUTH_ENABLED
+          value: "true"
+        - name: AUTH_OCP_URL
+          value: ""        # leave empty — auto-detected from cluster well-known endpoint
+        - name: AUTH_CLIENT_ID
+          value: "audit-radar"
+        - name: AUTH_REDIRECT_URL
+          value: ""        # leave empty — auto-built from request host
+        - name: AUTH_ADMIN_GROUP
+          value: "audit-radar-admins"
+        - name: AUTH_EDITOR_GROUP
+          value: "audit-radar-editors"
+        - name: AUTH_CLIENT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: audit-ui-oauth-secret
+              key: AUTH_CLIENT_SECRET
+              optional: true
+        # ── Basic auth fallback ───────────────────────────────────────────
+        - name: AUTH_BASIC_USER
+          valueFrom:
+            secretKeyRef:
+              name: audit-ui-basic-secret
+              key: AUTH_BASIC_USER
+              optional: true
+        - name: AUTH_BASIC_PASS
+          valueFrom:
+            secretKeyRef:
+              name: audit-ui-basic-secret
+              key: AUTH_BASIC_PASS
+              optional: true
+        - name: AUTH_BASIC_ROLE
+          value: "admin"   # role assigned to basic auth user
+        readinessProbe:
+          httpGet:
+            path: /healthz
+            port: 8080
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        resources:
+          requests:
+            cpu: 50m
+            memory: 32Mi
+          limits:
+            cpu: 200m
+            memory: 128Mi
+        securityContext:
+          runAsNonRoot: true
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop: [ALL]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: audit-ui
+  namespace: audit-vision
+spec:
+  selector:
+    app: audit-ui
+  ports:
+  - port: 8080
+    targetPort: 8080
+---
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: audit-ui
+  namespace: audit-vision
+spec:
+  to:
+    kind: Service
+    name: audit-ui
+  port:
+    targetPort: 8080
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect

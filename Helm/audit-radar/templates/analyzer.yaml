@@ -1,0 +1,51 @@
+{{- if .Values.analyzer.enabled }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: audit-analyzer
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: audit-analyzer
+    {{- include "audit-radar.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: audit-analyzer
+  template:
+    metadata:
+      labels:
+        app: audit-analyzer
+    spec:
+      containers:
+      - name: analyzer
+        image: {{ .Values.images.analyzer.repository }}:{{ .Values.images.analyzer.tag }}
+        imagePullPolicy: {{ .Values.images.analyzer.pullPolicy }}
+        env:
+        - name: DATABASE_URL
+          valueFrom:
+            secretKeyRef:
+              name: postgres-secret
+              key: DATABASE_URL
+        - name: OLLAMA_URL
+          value: "http://ollama:11434"
+        - name: OLLAMA_MODEL
+          value: {{ .Values.ollama.model | quote }}
+        - name: INTERVAL_SEC
+          value: {{ .Values.analyzer.intervalSec | quote }}
+        - name: BATCH_SIZE
+          value: {{ .Values.analyzer.batchSize | quote }}
+        resources:
+          requests:
+            cpu: 50m
+            memory: 64Mi
+          limits:
+            cpu: 200m
+            memory: 128Mi
+        securityContext:
+          runAsNonRoot: true
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop: [ALL]
+{{- end }}

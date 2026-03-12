@@ -1,0 +1,85 @@
+# ServiceAccount for the UI pod
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: audit-ui
+  namespace: audit-vision
+---
+# Allow UI to read and patch the alerter ConfigMap and Secret
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: audit-ui-configmap
+  namespace: audit-vision
+rules:
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    resourceNames: ["audit-alerter-config"]
+    verbs: ["get", "patch"]
+  - apiGroups: [""]
+    resources: ["secrets"]
+    resourceNames: ["audit-alerter-secret"]
+    verbs: ["get", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: audit-ui-configmap
+  namespace: audit-vision
+subjects:
+  - kind: ServiceAccount
+    name: audit-ui
+    namespace: audit-vision
+roleRef:
+  kind: Role
+  apiGroup: rbac.authorization.k8s.io
+  name: audit-ui-configmap
+---
+# ClusterRole — allows UI to read OCP Groups for user role resolution
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: audit-ui-groups-reader
+rules:
+  - apiGroups: ["user.openshift.io"]
+    resources: ["groups"]
+    verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: audit-ui-groups-reader
+subjects:
+  - kind: ServiceAccount
+    name: audit-ui
+    namespace: audit-vision
+roleRef:
+  kind: ClusterRole
+  apiGroup: rbac.authorization.k8s.io
+  name: audit-ui-groups-reader
+---
+# ClusterRole — allows UI to read Route and patch OAuthClient for auto-sync redirectURI
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: audit-ui-oauth-sync
+rules:
+  - apiGroups: ["route.openshift.io"]
+    resources: ["routes"]
+    verbs: ["get"]
+  - apiGroups: ["oauth.openshift.io"]
+    resources: ["oauthclients"]
+    verbs: ["get", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: audit-ui-oauth-sync
+subjects:
+  - kind: ServiceAccount
+    name: audit-ui
+    namespace: audit-vision
+roleRef:
+  kind: ClusterRole
+  apiGroup: rbac.authorization.k8s.io
+  name: audit-ui-oauth-sync

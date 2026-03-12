@@ -1,0 +1,20 @@
+# ── Build stage ───────────────────────────────────────────────────────────────
+FROM golang:1.22-alpine AS builder
+
+WORKDIR /build
+
+COPY go.mod go.sum ./
+RUN go mod download
+
+COPY . .
+RUN CGO_ENABLED=0 GOOS=linux go build -o ui ./cmd/ui
+
+# ── Runtime stage ──────────────────────────────────────────────────────────────
+FROM registry.access.redhat.com/ubi9/ubi-minimal:latest
+
+COPY --from=builder /build/ui /usr/local/bin/ui
+
+USER 1000
+EXPOSE 8080
+
+ENTRYPOINT ["ui"]

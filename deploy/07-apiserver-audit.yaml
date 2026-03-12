@@ -1,0 +1,39 @@
+# APIServer audit policy configuration.
+#
+# This enables WriteRequestBodies audit profile for the 'audit-write-users'
+# group so requestObject is included in audit events — required for
+# auditvision to show field-level changes (replicas, images, etc.)
+#
+# IMPORTANT: Applying this triggers a rolling restart of all kube-apiserver
+# pods. This takes 5-10 minutes on a standard 3-master cluster.
+# The cluster remains available during the rolling restart.
+#
+# Apply:
+#   oc apply -f 07-apiserver-audit.yaml
+#
+# Or patch manually:
+#   oc patch apiserver cluster --type=merge --patch-file=07-apiserver-audit.yaml
+#
+# Verify after ~10 min:
+#   oc get apiserver cluster -o jsonpath='{.spec.audit}' | jq .
+#
+# Monitor rollout:
+#   oc get pods -n openshift-kube-apiserver -w
+#
+# NOTE: The 'audit-write-users' group must include the users/groups you want
+# to capture full request bodies for. Add users with:
+#   oc adm groups add-users audit-write-users <username>
+---
+apiVersion: config.openshift.io/v1
+kind: APIServer
+metadata:
+  name: cluster
+spec:
+  audit:
+    # Default profile for all users — Metadata level (no request bodies)
+    profile: Default
+    # WriteRequestBodies for the audit-write-users group:
+    # includes requestObject in audit events so we can diff changes.
+    customRules:
+    - group: audit-write-users
+      profile: WriteRequestBodies
