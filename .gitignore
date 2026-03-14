@@ -1,3 +1,5 @@
 *.exe
 *.test
 vendor/
+preflight
+preflight.log
