@@ -1,0 +1,141 @@
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: audit-ui-basic-secret
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "audit-radar.labels" . | nindent 4 }}
+type: Opaque
+stringData:
+  AUTH_BASIC_USER: {{ .Values.ui.auth.basicUser | quote }}
+  AUTH_BASIC_PASS: {{ include "audit-radar.basicPass" . }}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: audit-ui-oauth-secret
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "audit-radar.labels" . | nindent 4 }}
+type: Opaque
+stringData:
+  AUTH_CLIENT_SECRET: ""
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: audit-ui
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: audit-ui
+    {{- include "audit-radar.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: audit-ui
+  template:
+    metadata:
+      labels:
+        app: audit-ui
+    spec:
+      serviceAccountName: audit-ui
+      containers:
+      - name: ui
+        image: {{ .Values.images.ui.repository }}:{{ .Values.images.ui.tag }}
+        imagePullPolicy: {{ .Values.images.ui.pullPolicy }}
+        ports:
+        - name: http
+          containerPort: 8080
+        env:
+        - name: LISTEN_ADDR
+          value: ":8080"
+        - name: DATABASE_URL
+          valueFrom:
+            secretKeyRef:
+              name: postgres-secret
+              key: DATABASE_URL
+        - name: AUTH_ENABLED
+          value: {{ .Values.ui.auth.enabled | quote }}
+        - name: AUTH_OCP_URL
+          value: ""
+        - name: AUTH_CLIENT_ID
+          value: "audit-radar"
+        - name: AUTH_REDIRECT_URL
+          value: ""
+        - name: AUTH_ADMIN_GROUP
+          value: {{ .Values.ui.auth.adminGroup | quote }}
+        - name: AUTH_EDITOR_GROUP
+          value: {{ .Values.ui.auth.editorGroup | quote }}
+        - name: AUTH_CLIENT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: audit-ui-oauth-secret
+              key: AUTH_CLIENT_SECRET
+              optional: true
+        - name: AUTH_BASIC_USER
+          valueFrom:
+            secretKeyRef:
+              name: audit-ui-basic-secret
+              key: AUTH_BASIC_USER
+              optional: true
+        - name: AUTH_BASIC_PASS
+          valueFrom:
+            secretKeyRef:
+              name: audit-ui-basic-secret
+              key: AUTH_BASIC_PASS
+              optional: true
+        - name: AUTH_BASIC_ROLE
+          value: {{ .Values.ui.auth.basicRole | quote }}
+        readinessProbe:
+          httpGet:
+            path: /healthz
+            port: 8080
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        resources:
+          requests:
+            cpu: 50m
+            memory: 32Mi
+          limits:
+            cpu: 200m
+            memory: 128Mi
+        securityContext:
+          runAsNonRoot: true
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop: [ALL]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: audit-ui
+  namespace: {{ .Values.namespace }}
+spec:
+  selector:
+    app: audit-ui
+  ports:
+  - port: 8080
+    targetPort: 8080
+---
+# Ingress — works with Traefik (k3s default) and nginx-ingress
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: audit-ui
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "audit-radar.labels" . | nindent 4 }}
+spec:
+  rules:
+  - host: {{ .Values.ui.ingress.host }}
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: audit-ui
+            port:
+              number: 8080

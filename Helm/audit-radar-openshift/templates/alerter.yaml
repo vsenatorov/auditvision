@@ -1,0 +1,72 @@
+{{- if .Values.alerter.enabled }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: audit-alerter-config
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "audit-radar.labels" . | nindent 4 }}
+data:
+  ALERT_SLACK_WEBHOOK: {{ .Values.alerter.slack.webhookUrl | quote }}
+  ALERT_SMTP_HOST: {{ .Values.alerter.smtp.host | quote }}
+  ALERT_SMTP_PORT: {{ .Values.alerter.smtp.port | quote }}
+  ALERT_SMTP_USER: {{ .Values.alerter.smtp.user | quote }}
+  ALERT_EMAIL_FROM: {{ .Values.alerter.smtp.from | quote }}
+  ALERT_EMAIL_TO: {{ .Values.alerter.smtp.to | quote }}
+  ALERT_ON_HIGH: {{ .Values.alerter.rules.alertOnHigh | quote }}
+  ALERT_ON_HUMAN_DELETE: {{ .Values.alerter.rules.alertOnHumanDelete | quote }}
+  ALERT_POLL_INTERVAL: {{ .Values.alerter.pollInterval | quote }}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: audit-alerter-secret
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "audit-radar.labels" . | nindent 4 }}
+type: Opaque
+stringData:
+  ALERT_SMTP_PASS: {{ .Values.alerter.smtp.password | quote }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: audit-alerter
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: audit-alerter
+    {{- include "audit-radar.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: audit-alerter
+  template:
+    metadata:
+      labels:
+        app: audit-alerter
+    spec:
+      containers:
+        - name: alerter
+          image: {{ .Values.images.alerter.repository }}:{{ .Values.images.alerter.tag }}
+          imagePullPolicy: {{ .Values.images.alerter.pullPolicy }}
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: DATABASE_URL
+          envFrom:
+            - configMapRef:
+                name: audit-alerter-config
+            - secretRef:
+                name: audit-alerter-secret
+          resources:
+            requests:
+              memory: "64Mi"
+              cpu: "50m"
+            limits:
+              memory: "128Mi"
+              cpu: "200m"
+{{- end }}

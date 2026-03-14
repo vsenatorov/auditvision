@@ -1,0 +1,70 @@
+{
+    "image": "localhost:5000/auditvision-ui:test",
+    "passed": false,
+    "test_library": {
+        "name": "github.com/redhat-openshift-ecosystem/openshift-preflight",
+        "version": "1.16.0",
+        "commit": "b4a231cf9d50c5471eed598b3b48906eb5b9f3f7"
+    },
+    "results": {
+        "passed": [
+            {
+                "name": "HasLicense",
+                "elapsed_time": 0,
+                "description": "Checking if terms and conditions applicable to the software including open source licensing information are present. The license must be at /licenses"
+            },
+            {
+                "name": "HasUniqueTag",
+                "elapsed_time": 0,
+                "description": "Checking if container has a tag other than 'latest', so that the image can be uniquely identified."
+            },
+            {
+                "name": "LayerCountAcceptable",
+                "elapsed_time": 0,
+                "description": "Checking if container has less than 40 layers.  Too many layers within the container images can degrade container performance."
+            },
+            {
+                "name": "HasNoProhibitedPackages",
+                "elapsed_time": 109,
+                "description": "Checks to ensure that the image in use does not include prohibited packages, such as Red Hat Enterprise Linux (RHEL) kernel packages."
+            },
+            {
+                "name": "HasRequiredLabel",
+                "elapsed_time": 0,
+                "description": "Checking if the required labels (name, vendor, version, release, summary, description, maintainer) are present in the container metadata"
+            },
+            {
+                "name": "RunAsNonRoot",
+                "elapsed_time": 0,
+                "description": "Checking if container runs as the root user because a container that does not specify a non-root user will fail the automatic certification, and will be subject to a manual review before the container can be approved for publication"
+            },
+            {
+                "name": "HasModifiedFiles",
+                "elapsed_time": 5156,
+                "description": "Checks that no files installed via RPM in the base Red Hat layer have been modified"
+            },
+            {
+                "name": "BasedOnUbi",
+                "elapsed_time": 829,
+                "description": "Checking if the container's base image is based upon the Red Hat Universal Base Image (UBI)"
+            },
+            {
+                "name": "HasProhibitedContainerName",
+                "elapsed_time": 0,
+                "description": "Checking if the container-name violates Red Hat trademark."
+            }
+        ],
+        "failed": [
+            {
+                "name": "HasNoProhibitedLabels",
+                "elapsed_time": 0,
+                "description": "Checking if the labels (name, vendor, maintainer) violate Red Hat trademark.",
+                "help": "Check HasNoProhibitedLabelsCheck encountered an error. Please review the preflight.log file for more information.",
+                "suggestion": "Ensure the name, vendor, and maintainer label on your image do not violate the Red Hat trademark.",
+                "knowledgebase_url": "https://access.redhat.com/documentation/en-us/red_hat_software_certification/2024/html-single/red_hat_openshift_software_certification_policy_guide/index#assembly-requirements-for-container-images_openshift-sw-cert-policy-introduction",
+                "check_url": "https://access.redhat.com/documentation/en-us/red_hat_software_certification/2024/html-single/red_hat_openshift_software_certification_policy_guide/index#assembly-requirements-for-container-images_openshift-sw-cert-policy-introduction"
+            }
+        ],
+        "errors": []
+    }
+}

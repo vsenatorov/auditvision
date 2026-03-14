@@ -1,20 +1,24 @@
 # ── Build stage ───────────────────────────────────────────────────────────────
 FROM golang:1.22-alpine AS builder
-
 WORKDIR /build
-
 COPY go.mod go.sum ./
 RUN go mod download
-
 COPY . .
 RUN CGO_ENABLED=0 GOOS=linux go build -o ui ./cmd/ui
 
 # ── Runtime stage ──────────────────────────────────────────────────────────────
 FROM registry.access.redhat.com/ubi9/ubi-minimal:latest
 
+LABEL name="auditvision-ui" \
+      vendor="AuditRadar" \
+      version="1.0.0" \
+      release="1" \
+      summary="AuditVision UI" \
+      description="Web interface component of the AuditVision observability tool"
+
 COPY --from=builder /build/ui /usr/local/bin/ui
+COPY licenses/ /licenses/
 
 USER 1000
 EXPOSE 8080
-
 ENTRYPOINT ["ui"]

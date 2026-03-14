@@ -1,19 +1,23 @@
 # ── Build stage ───────────────────────────────────────────────────────────────
 FROM golang:1.22-alpine AS builder
-
 WORKDIR /build
-
 COPY go.mod go.sum ./
 RUN go mod download
-
 COPY . .
 RUN CGO_ENABLED=0 GOOS=linux go build -o alerter ./cmd/alerter
 
 # ── Runtime stage ──────────────────────────────────────────────────────────────
 FROM registry.access.redhat.com/ubi9/ubi-minimal:latest
 
+LABEL name="auditvision-alerter" \
+      vendor="AuditRadar" \
+      version="1.0.0" \
+      release="1" \
+      summary="AuditVision Alerter" \
+      description="Alerting component of the AuditVision observability tool"
+
 COPY --from=builder /build/alerter /usr/local/bin/alerter
+COPY licenses/ /licenses/
 
 USER 1000
-
 ENTRYPOINT ["alerter"]

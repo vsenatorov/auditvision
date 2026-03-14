@@ -123,12 +123,17 @@ func main() {
 	mux.HandleFunc("/audit-sink", auditSinkHandler(ctx, db, enricher))
 	mux.HandleFunc("/vector-sink", vectorSinkHandler(ctx, db, enricher))
 
-	go func() {
-		log.Println("collector: vector HTTP listener on :8080")
-		if err := http.ListenAndServe(":8080", mux); err != nil {
-			log.Fatalf("collector: vector listener: %v", err)
-		}
-	}()
+	vectorAddr := envOr("VECTOR_ADDR", ":8080")
+	if vectorAddr != listenAddr {
+		go func() {
+			log.Printf("collector: vector HTTP listener on %s", vectorAddr)
+			if err := http.ListenAndServe(vectorAddr, mux); err != nil {
+				log.Fatalf("collector: vector listener: %v", err)
+			}
+		}()
+	} else {
+		log.Printf("collector: vector-sink available on main listener %s", listenAddr)
+	}
 
 	log.Printf("collector: listening on %s", listenAddr)
 

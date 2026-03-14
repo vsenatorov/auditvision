@@ -1,0 +1,14 @@
+apiVersion: v2
+name: audit-radar-k8s
+description: Audit Radar — real-time audit log explorer for Kubernetes / k3s
+type: application
+version: 0.1.0
+appVersion: "latest"
+keywords:
+  - audit
+  - kubernetes
+  - security
+  - compliance
+home: https://audit-radar.com
+sources:
+  - https://github.com/vsenatorov/auditvision

@@ -1,25 +1,28 @@
 # ── Build stage ───────────────────────────────────────────────────────────────
 FROM golang:1.22-alpine AS builder
-
 WORKDIR /build
-
 COPY go.mod go.sum ./
 RUN go mod download
-
 COPY . .
 RUN CGO_ENABLED=0 GOOS=linux go build -o collector ./cmd/collector
 
-# Download oc CLI here where wget is available
 RUN wget -qO- https://mirror.openshift.com/pub/openshift-v4/clients/ocp/stable/openshift-client-linux.tar.gz \
     | tar xz -C /usr/local/bin oc
 
 # ── Runtime stage ──────────────────────────────────────────────────────────────
 FROM registry.access.redhat.com/ubi9/ubi-minimal:latest
 
+LABEL name="auditvision-collector" \
+      vendor="Your Company" \
+      version="1.0.0" \
+      release="1" \
+      summary="AuditVision Collector" \
+      description="Data collection component of the AuditVision observability tool"
+
 COPY --from=builder /build/collector /usr/local/bin/collector
 COPY --from=builder /usr/local/bin/oc /usr/local/bin/oc
+COPY licenses/ /licenses/
 
 USER 1000
 EXPOSE 8443
-
 ENTRYPOINT ["collector"]

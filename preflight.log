@@ -1,0 +1,16 @@
+time="2026-03-12T16:06:34+01:00" level=info msg="certification library version" version="1.16.0 <commit: b4a231cf9d50c5471eed598b3b48906eb5b9f3f7>"
+time="2026-03-12T16:06:34+01:00" level=info msg="running checks for localhost:5000/auditvision-ui:test for platform amd64"
+time="2026-03-12T16:06:34+01:00" level=info msg="target image" image="localhost:5000/auditvision-ui:test"
+time="2026-03-12T16:06:39+01:00" level=info msg="check completed" check=HasLicense result=PASSED
+time="2026-03-12T16:06:39+01:00" level=info msg="check completed" check=HasUniqueTag result=PASSED
+time="2026-03-12T16:06:39+01:00" level=info msg="check completed" check=LayerCountAcceptable result=PASSED
+time="2026-03-12T16:06:39+01:00" level=info msg="check completed" check=HasNoProhibitedPackages result=PASSED
+time="2026-03-12T16:06:39+01:00" level=info msg="check completed" check=HasRequiredLabel result=PASSED
+time="2026-03-12T16:06:39+01:00" level=info msg="check completed" check=HasNoProhibitedLabels result=FAILED
+time="2026-03-12T16:06:39+01:00" level=info msg="USER 1000 specified that is non-root" check=RunAsNonRoot
+time="2026-03-12T16:06:39+01:00" level=info msg="check completed" check=RunAsNonRoot result=PASSED
+time="2026-03-12T16:06:44+01:00" level=info msg="check completed" check=HasModifiedFiles result=PASSED
+time="2026-03-12T16:06:45+01:00" level=info msg="check completed" check=BasedOnUbi result=PASSED
+time="2026-03-12T16:06:45+01:00" level=info msg="check completed" check=HasProhibitedContainerName result=PASSED
+time="2026-03-12T16:06:45+01:00" level=info msg="This image's tag test will be paired with digest sha256:687f0cdf29f22241241e0c5d3ddc951fcd7ee41c0cbe06482dbf58cb139ef8e3 once this image has been published in accordance with Red Hat Certification policy. You may then add or remove any supplemental tags through your Red Hat Connect portal as you see fit."
+time="2026-03-12T16:06:45+01:00" level=info msg="Preflight result: FAILED"

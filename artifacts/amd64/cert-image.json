@@ -1,0 +1,145 @@
+{
+    "certified": false,
+    "deleted": false,
+    "docker_image_digest": "sha256:687f0cdf29f22241241e0c5d3ddc951fcd7ee41c0cbe06482dbf58cb139ef8e3",
+    "docker_image_id": "sha256:6cf9fa6473a25319d244ce9933c8dceeaca717c0185d1a210ae6390eadd2055e",
+    "image_id": "sha256:687f0cdf29f22241241e0c5d3ddc951fcd7ee41c0cbe06482dbf58cb139ef8e3",
+    "parsed_data": {
+        "architecture": "amd64",
+        "created": "2026-03-12 15:03:07.573257528 +0000 UTC",
+        "image_id": "sha256:687f0cdf29f22241241e0c5d3ddc951fcd7ee41c0cbe06482dbf58cb139ef8e3",
+        "labels": [
+            {
+                "name": "description",
+                "value": "Web interface component of the AuditVision observability tool"
+            },
+            {
+                "name": "io.openshift.tags",
+                "value": "minimal rhel9"
+            },
+            {
+                "name": "maintainer",
+                "value": "Red Hat, Inc."
+            },
+            {
+                "name": "release",
+                "value": "1"
+            },
+            {
+                "name": "summary",
+                "value": "AuditVision UI"
+            },
+            {
+                "name": "com.redhat.component",
+                "value": "ubi9-minimal-container"
+            },
+            {
+                "name": "distribution-scope",
+                "value": "public"
+            },
+            {
+                "name": "io.openshift.expose-services",
+                "value": ""
+            },
+            {
+                "name": "org.opencontainers.image.created",
+                "value": "2026-02-17T16:42:34Z"
+            },
+            {
+                "name": "vendor",
+                "value": "AuditRadar"
+            },
+            {
+                "name": "build-date",
+                "value": "2026-02-17T16:42:34Z"
+            },
+            {
+                "name": "io.k8s.display-name",
+                "value": "Red Hat Universal Base Image 9 Minimal"
+            },
+            {
+                "name": "org.opencontainers.image.revision",
+                "value": "0ced2bbee24d5463d4530756a57f8db895246c48"
+            },
+            {
+                "name": "url",
+                "value": "https://catalog.redhat.com/en/search?searchType=containers"
+            },
+            {
+                "name": "vcs-ref",
+                "value": "0ced2bbee24d5463d4530756a57f8db895246c48"
+            },
+            {
+                "name": "vcs-type",
+                "value": "git"
+            },
+            {
+                "name": "architecture",
+                "value": "x86_64"
+            },
+            {
+                "name": "com.redhat.license_terms",
+                "value": "https://www.redhat.com/en/about/red-hat-end-user-license-agreements#UBI"
+            },
+            {
+                "name": "cpe",
+                "value": "cpe:/a:redhat:enterprise_linux:9::appstream"
+            },
+            {
+                "name": "io.buildah.version",
+                "value": "1.37.6"
+            },
+            {
+                "name": "io.k8s.description",
+                "value": "The Universal Base Image Minimal is a stripped down image that uses microdnf as a package manager. This base image is freely redistributable, but Red Hat only supports Red Hat technologies through subscriptions for Red Hat products. This image is maintained by Red Hat and updated regularly."
+            },
+            {
+                "name": "name",
+                "value": "auditvision-ui"
+            },
+            {
+                "name": "version",
+                "value": "1.0.0"
+            }
+        ],
+        "layers": [
+            "sha256:04d86744b9cb6935b35fcbcafc2cf3babde0dec3d1f42e85c66ffbc94ac04600",
+            "sha256:606b1a604fecbbc1fe57678272ac007e2db3968251cf291eebd3e39f09db10c2",
+            "sha256:4638e3415987f378f2d6dd70f9c6a2869dd5ebd09e3510ba45e46bbb6ec1a3dd"
+        ],
+        "os": "linux",
+        "size": 939,
+        "uncompressed_layer_sizes": [
+            {
+                "layer_id": "sha256:c7d126a38ec29b4dfaa7477bb233e17cf1e9bfd0d3dd7af6201f8c5547ac3f50",
+                "size_bytes": 107106816
+            },
+            {
+                "layer_id": "sha256:fd9fe62219aed97d4d11e1d0a3bc29943395666d4cc35541aa8d932a9905688a",
+                "size_bytes": 16996352
+            },
+            {
+                "layer_id": "sha256:afc5614dc14569d04c2e15d88a1746a0e629c30494035e15e7a32a19e5474c34",
+                "size_bytes": 13824
+            }
+        ]
+    },
+    "architecture": "amd64",
+    "raw_config": "{\"created\":\"2026-03-12T15:03:07.573257528Z\",\"architecture\":\"amd64\",\"os\":\"linux\",\"config\":{\"User\":\"1000\",\"ExposedPorts\":{\"8080/tcp\":{}},\"Env\":[\"PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin\",\"container=oci\"],\"Entrypoint\":[\"ui\"],\"WorkingDir\":\"/\",\"Labels\":{\"architecture\":\"x86_64\",\"build-date\":\"2026-02-17T16:42:34Z\",\"com.redhat.component\":\"ubi9-minimal-container\",\"com.redhat.license_terms\":\"https://www.redhat.com/en/about/red-hat-end-user-license-agreements#UBI\",\"cpe\":\"cpe:/a:redhat:enterprise_linux:9::appstream\",\"description\":\"Web interface component of the AuditVision observability tool\",\"distribution-scope\":\"public\",\"io.buildah.version\":\"1.37.6\",\"io.k8s.description\":\"The Universal Base Image Minimal is a stripped down image that uses microdnf as a package manager. This base image is freely redistributable, but Red Hat only supports Red Hat technologies through subscriptions for Red Hat products. This image is maintained by Red Hat and updated regularly.\",\"io.k8s.display-name\":\"Red Hat Universal Base Image 9 Minimal\",\"io.openshift.expose-services\":\"\",\"io.openshift.tags\":\"minimal rhel9\",\"maintainer\":\"Red Hat, Inc.\",\"name\":\"auditvision-ui\",\"org.opencontainers.image.created\":\"2026-02-17T16:42:34Z\",\"org.opencontainers.image.revision\":\"0ced2bbee24d5463d4530756a57f8db895246c48\",\"release\":\"1\",\"summary\":\"AuditVision UI\",\"url\":\"https://catalog.redhat.com/en/search?searchType=containers\",\"vcs-ref\":\"0ced2bbee24d5463d4530756a57f8db895246c48\",\"vcs-type\":\"git\",\"vendor\":\"AuditRadar\",\"version\":\"1.0.0\"}},\"rootfs\":{\"type\":\"layers\",\"diff_ids\":[\"sha256:c7d126a38ec29b4dfaa7477bb233e17cf1e9bfd0d3dd7af6201f8c5547ac3f50\",\"sha256:fd9fe62219aed97d4d11e1d0a3bc29943395666d4cc35541aa8d932a9905688a\",\"sha256:afc5614dc14569d04c2e15d88a1746a0e629c30494035e15e7a32a19e5474c34\"]},\"history\":[{\"created\":\"2026-02-17T16:42:45.351404731Z\",\"created_by\":\"/bin/sh -c #(nop) LABEL maintainer=\\\"Red Hat, Inc.\\\"\",\"empty_layer\":true},{\"created\":\"2026-02-17T16:42:45.370744084Z\",\"created_by\":\"/bin/sh -c #(nop) LABEL vendor=\\\"Red Hat, Inc.\\\"\",\"empty_layer\":true},{\"created\":\"2026-02-17T16:42:45.389622147Z\",\"created_by\":\"/bin/sh -c #(nop) LABEL url=\\\"https://catalog.redhat.com/en/search?searchType=containers\\\"\",\"empty_layer\":true},{\"created\":\"2026-02-17T16:42:45.409118644Z\",\"created_by\":\"/bin/sh -c #(nop) LABEL com.redhat.component=\\\"ubi9-minimal-container\\\"       name=\\\"ubi9/ubi-minimal\\\"       version=\\\"9.7\\\"       cpe=\\\"cpe:/a:redhat:enterprise_linux:9::appstream\\\"       distribution-scope=\\\"public\\\"\",\"empty_layer\":true},{\"created\":\"2026-02-17T16:42:45.427401733Z\",\"created_by\":\"/bin/sh -c #(nop) LABEL com.redhat.license_terms=\\\"https://www.redhat.com/en/about/red-hat-end-user-license-agreements#UBI\\\"\",\"empty_layer\":true},{\"created\":\"2026-02-17T16:42:45.445746693Z\",\"created_by\":\"/bin/sh -c #(nop) LABEL summary=\\\"Provides the latest release of the minimal Red Hat Universal Base Image 9.\\\"\",\"empty_layer\":true},{\"created\":\"2026-02-17T16:42:45.464642346Z\",\"created_by\":\"/bin/sh -c #(nop) LABEL description=\\\"The Universal Base Image Minimal is a stripped down image that uses microdnf as a package manager. This base image is freely redistributable, but Red Hat only supports Red Hat technologies through subscriptions for Red Hat products. This image is maintained by Red Hat and updated regularly.\\\"\",\"empty_layer\":true},{\"created\":\"2026-02-17T16:42:45.483322194Z\",\"created_by\":\"/bin/sh -c #(nop) LABEL io.k8s.description=\\\"The Universal Base Image Minimal is a stripped down image that uses microdnf as a package manager. This base image is freely redistributable, but Red Hat only supports Red Hat technologies through subscriptions for Red Hat products. This image is maintained by Red Hat and updated regularly.\\\"\",\"empty_layer\":true},{\"created\":\"2026-02-17T16:42:45.503249331Z\",\"created_by\":\"/bin/sh -c #(nop) LABEL io.k8s.display-name=\\\"Red Hat Universal Base Image 9 Minimal\\\"\",\"empty_layer\":true},{\"created\":\"2026-02-17T16:42:45.522446531Z\",\"created_by\":\"/bin/sh -c #(nop) LABEL io.openshift.expose-services=\\\"\\\"\",\"empty_layer\":true},{\"created\":\"2026-02-17T16:42:45.540945424Z\",\"created_by\":\"/bin/sh -c #(nop) LABEL io.openshift.tags=\\\"minimal rhel9\\\"\",\"empty_layer\":true},{\"created\":\"2026-02-17T16:42:45.560481592Z\",\"created_by\":\"/bin/sh -c #(nop) ENV container oci\",\"empty_layer\":true},{\"created\":\"2026-02-17T16:42:46.07751294Z\",\"created_by\":\"/bin/sh -c #(nop) COPY dir:a84da6f36b88f4eb0d6c411f65b34c1a9d85150d3035dd516db4ece0c2569465 in /      \",\"empty_layer\":true},{\"created\":\"2026-02-17T16:42:46.170551482Z\",\"created_by\":\"/bin/sh -c #(nop) COPY file:1376702515d596f414e3aa494e0daa6d408a6d2475c4aeca96bf9392f5287f69 in /etc/yum.repos.d/.      \",\"empty_layer\":true},{\"created\":\"2026-02-17T16:42:46.189386034Z\",\"created_by\":\"/bin/sh -c #(nop) CMD [\\\"/bin/bash\\\"]\",\"empty_layer\":true},{\"created\":\"2026-02-17T16:42:46.281271229Z\",\"created_by\":\"/bin/sh -c #(nop) COPY file:93583a9ebbaeff1e36b48820b647eea1eef523f6627dacfb0b21af79f5a41b35 in /usr/share/buildinfo/content-sets.json      \",\"empty_layer\":true},{\"created\":\"2026-02-17T16:42:46.374992797Z\",\"created_by\":\"/bin/sh -c #(nop) COPY file:93583a9ebbaeff1e36b48820b647eea1eef523f6627dacfb0b21af79f5a41b35 in /root/buildinfo/content_manifests/content-sets.json      \",\"empty_layer\":true},{\"created\":\"2026-02-17T16:42:46.472709036Z\",\"created_by\":\"/bin/sh -c #(nop) COPY file:6326b4becf4dcc53eab9a0e80efe304ada5421165d0586862d969cb5fa826bd8 in /usr/share/buildinfo/labels.json      \",\"empty_layer\":true},{\"created\":\"2026-02-17T16:42:46.56581626Z\",\"created_by\":\"/bin/sh -c #(nop) COPY file:6326b4becf4dcc53eab9a0e80efe304ada5421165d0586862d969cb5fa826bd8 in /root/buildinfo/labels.json      \",\"empty_layer\":true},{\"created\":\"2026-02-17T16:42:46.854387212Z\",\"created_by\":\"/bin/sh -c #(nop) LABEL \\\"architecture\\\"=\\\"x86_64\\\" \\\"vcs-type\\\"=\\\"git\\\" \\\"vcs-ref\\\"=\\\"0ced2bbee24d5463d4530756a57f8db895246c48\\\" \\\"org.opencontainers.image.revision\\\"=\\\"0ced2bbee24d5463d4530756a57f8db895246c48\\\" \\\"build-date\\\"=\\\"2026-02-17T16:42:34Z\\\" \\\"org.opencontainers.image.created\\\"=\\\"2026-02-17T16:42:34Z\\\" \\\"release\\\"=\\\"1771346502\\\"org.opencontainers.image.revision=0ced2bbee24d5463d4530756a57f8db895246c48,org.opencontainers.image.created=2026-02-17T16:42:34Z\"},{\"created\":\"2026-03-12T15:03:04.497035221Z\",\"created_by\":\"/bin/sh -c #(nop) LABEL name=\\\"auditvision-ui\\\"       vendor=\\\"AuditRadar\\\"       version=\\\"1.0.0\\\"       release=\\\"1\\\"       summary=\\\"AuditVision UI\\\"       description=\\\"Web interface component of the AuditVision observability tool\\\"\",\"comment\":\"FROM registry.access.redhat.com/ubi9/ubi-minimal:latest\",\"empty_layer\":true},{\"created\":\"2026-03-12T15:03:06.001532996Z\",\"created_by\":\"/bin/sh -c #(nop) COPY file:b4ae115afe03e6b825d007a9395b56c5668ca8eba98241b73e987a8953832855 in /usr/local/bin/ui \",\"comment\":\"FROM c4d6d50dc912\"},{\"created\":\"2026-03-12T15:03:07.159306541Z\",\"created_by\":\"/bin/sh -c #(nop) COPY dir:f5ab50807331c354ee4381ecec1b84d339966912eea48a069ef5635aa3ba9240 in /licenses/ \",\"comment\":\"FROM aee0b7fffd46\"},{\"created\":\"2026-03-12T15:03:07.356317022Z\",\"created_by\":\"/bin/sh -c #(nop) USER 1000\",\"comment\":\"FROM 2cdf638187be\",\"empty_layer\":true},{\"created\":\"2026-03-12T15:03:07.47283956Z\",\"created_by\":\"/bin/sh -c #(nop) EXPOSE 8080\",\"comment\":\"FROM cc4d0c9fc2cf\",\"empty_layer\":true},{\"created\":\"2026-03-12T15:03:07.573701514Z\",\"created_by\":\"/bin/sh -c #(nop) ENTRYPOINT [\\\"ui\\\"]\",\"comment\":\"FROM 93dd6aa1a6e3\",\"empty_layer\":true}]}",
+    "repositories": [
+        {
+            "published": false,
+            "push_date": "2026-03-12T15:06:39Z",
+            "registry": "localhost:5000",
+            "repository": "auditvision-ui",
+            "tags": [
+                {
+                    "added_date": "2026-03-12T15:06:39Z",
+                    "name": "test"
+                }
+            ]
+        }
+    ],
+    "sum_layer_size_bytes": 124116992,
+    "uncompressed_top_layer_id": "sha256:c7d126a38ec29b4dfaa7477bb233e17cf1e9bfd0d3dd7af6201f8c5547ac3f50"
+}

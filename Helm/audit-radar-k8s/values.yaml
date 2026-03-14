@@ -1,0 +1,90 @@
+# audit-radar-k8s Helm chart values
+# Kubernetes / k3s — for OpenShift see Helm/audit-radar/
+
+# ── Namespace ─────────────────────────────────────────────────────────────────
+namespace: audit-vision
+
+# ── Images ────────────────────────────────────────────────────────────────────
+images:
+  ui:
+    repository: docker.io/hybrid2k3/audit-ui
+    tag: latest
+    pullPolicy: Always
+  collector:
+    repository: docker.io/hybrid2k3/audit-collector
+    tag: latest
+    pullPolicy: Always
+  analyzer:
+    repository: docker.io/hybrid2k3/audit-analyzer
+    tag: latest
+    pullPolicy: Always
+  alerter:
+    repository: docker.io/hybrid2k3/audit-alerter
+    tag: latest
+    pullPolicy: Always
+  postgres:
+    repository: postgres
+    tag: "15"
+
+# ── PostgreSQL ────────────────────────────────────────────────────────────────
+postgres:
+  user: auditvision
+  database: auditvision
+  storage: 10Gi
+
+# ── Collector ─────────────────────────────────────────────────────────────────
+collector:
+  retentionDays: 30
+
+# ── UI / Auth ─────────────────────────────────────────────────────────────────
+ui:
+  auth:
+    enabled: true
+    basicUser: "admin"
+    basicRole: "admin"
+    adminGroup: "audit-radar-admins"
+    editorGroup: "audit-radar-editors"
+  ingress:
+    # Set to your cluster IP or hostname
+    # For k3s with Traefik: audit.<node-ip>.nip.io
+    host: "audit.192.168.10.30.nip.io"
+
+# ── Ollama / Analyzer ─────────────────────────────────────────────────────────
+ollama:
+  enabled: true
+  model: "granite3.2:2b"
+  storage: 10Gi
+  resources:
+    requests:
+      cpu: "1"
+      memory: 2Gi
+    limits:
+      cpu: "4"
+      memory: 6Gi
+
+analyzer:
+  enabled: true
+  intervalSec: 30
+  batchSize: 5
+
+# ── Alerter ───────────────────────────────────────────────────────────────────
+alerter:
+  enabled: true
+  slack:
+    webhookUrl: ""
+  smtp:
+    host: ""
+    port: "587"
+    user: ""
+    from: ""
+    to: ""
+    password: ""
+  rules:
+    alertOnHigh: "true"
+    alertOnHumanDelete: "true"
+  pollInterval: "30s"
+
+# ── Vector (replaces CLF on k8s) ──────────────────────────────────────────────
+vector:
+  # Path to k3s audit log on host
+  auditLogPath: "/var/log/k3s-audit.log"

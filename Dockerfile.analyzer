@@ -1,3 +1,4 @@
+# ── Build stage ───────────────────────────────────────────────────────────────
 FROM golang:1.22-alpine AS builder
 WORKDIR /src
 COPY go.mod go.sum ./
@@ -5,6 +6,19 @@ RUN go mod download
 COPY . .
 RUN CGO_ENABLED=0 GOOS=linux go build -o /analyzer ./cmd/analyzer
 
-FROM gcr.io/distroless/static:nonroot
+# ── Runtime stage ──────────────────────────────────────────────────────────────
+
+FROM registry.access.redhat.com/ubi9/ubi-minimal:latest
+
+LABEL name="auditvision-analyzer" \
+      vendor="AuditRadar" \
+      version="1.0.0" \
+      release="1" \
+      summary="AuditVision Analyzer" \
+      description="Analysis component of the AuditVision observability tool"
+
 COPY --from=builder /analyzer /analyzer
+COPY licenses/ /licenses/
+
+USER 1000
 ENTRYPOINT ["/analyzer"]
