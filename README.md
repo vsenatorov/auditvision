@@ -1,20 +1,23 @@
 # Audit Radar
 
-**Real-time audit log explorer for OpenShift**
+**Real-time audit log explorer for OpenShift and Kubernetes**
 
-Audit Radar collects, stores, and visualizes Kubernetes API audit events. It shows you who did what, when, and where across your cluster — with AI-powered risk scoring, anomaly detection, and webhook alerting.
+Audit Radar collects, stores, and visualizes Kubernetes API audit events. It shows you who did what, when, and where across your cluster — with AI-powered risk scoring, webhook alerting, and exclusion filters.
 
-Built for Red Hat OpenShift 4.x.
+Built for Red Hat OpenShift 4.x and Kubernetes / k3s.
+
+🌐 [audit-radar.com](https://audit-radar.com) · [Docker Hub](https://hub.docker.com/u/hybrid2k3)
 
 ---
 
 ## Features
 
 - **Live event stream** — real-time audit log feed with filtering by actor, namespace, verb, resource, and risk level
-- **AI risk scoring** — every event scored by IBM Granite 3.2 running locally via Ollama; no data leaves the cluster
+- **AI risk scoring** — every event scored HIGH/MEDIUM/LOW by IBM Granite 3.2 running locally via Ollama; no data leaves the cluster
 - **Alert rules** — configurable webhook alerts to Slack and email (human DELETE, HIGH risk events, custom rules)
 - **Exclusion filters** — drop noisy service account traffic before it hits the database
 - **OCP OAuth2** — single sign-on with OpenShift groups (`audit-radar-admins`, `audit-radar-editors`, viewer)
+- **Basic auth** — username/password fallback (works on both OCP and plain Kubernetes)
 - **CSV export** — export filtered events for compliance reporting
 - **SOC2 / PCI ready** — full audit trail of human and system actions across all namespaces
 
@@ -26,65 +29,76 @@ Built for Red Hat OpenShift 4.x.
 kube-apiserver
       │  audit events
       ▼
-ClusterLogForwarder (OpenShift Logging)
-      │  HTTP POST
-      ▼
-audit-collector   ──── PostgreSQL
-      │                    │
-      │              audit-analyzer (Granite 3.2 via Ollama)
-      │              audit-alerter  (Slack / email)
-      ▼
-  audit-ui  ◄──── OCP OAuth2 / basic auth
-      │
-   browser
+CLF (OpenShift)          Vector DaemonSet (Kubernetes/k3s)
+      │  HTTP POST               │  HTTP POST
+      └──────────────┬───────────┘
+                     ▼
+             audit-collector ──── PostgreSQL
+                                      │
+                              audit-analyzer (Granite 3.2 via Ollama)
+                              audit-alerter  (Slack / email)
+                                      │
+                                  audit-ui ◄──── OCP OAuth2 / basic auth
+                                      │
+                                   browser
 ```
 
 | Component | Image | Description |
 |-----------|-------|-------------|
 | audit-ui | `hybrid2k3/audit-ui` | Go HTTP server — UI, API, settings |
-| audit-collector | `hybrid2k3/audit-collector` | Receives events from CLF, normalizes, stores |
+| audit-collector | `hybrid2k3/audit-collector` | Receives events, normalizes, stores |
 | audit-analyzer | `hybrid2k3/audit-analyzer` | AI risk scoring via Granite 3.2 |
 | audit-alerter | `hybrid2k3/audit-alerter` | Slack/email alerts on rules |
 | ollama | `ollama/ollama` | Local LLM runtime |
-| postgres | `registry.redhat.io/rhel9/postgresql-15` | Event storage |
+| postgres | `registry.redhat.io/rhel9/postgresql-15` (OCP) / `postgres:15` (k8s) | Event storage |
 
 ---
 
-## Install — Helm (recommended)
+## Helm Charts
+
+Two separate charts are provided — one per platform:
+
+| Chart | Path | Platform |
+|-------|------|----------|
+| `audit-radar-openshift` | `Helm/audit-radar-openshift/` | Red Hat OpenShift 4.x |
+| `audit-radar-k8s` | `Helm/audit-radar-k8s/` | Kubernetes / k3s |
+
+---
+
+## Install on OpenShift
 
 ### Prerequisites
 
 - OpenShift 4.x with cluster-admin
-- Helm 3.x (`curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash`)
+- Helm 3.x
 
 ### 1. Install OpenShift Logging operator
 
 ```bash
 oc apply -f deploy/04b-logging-operator.yaml
-# Wait ~2-3 minutes for the operator to reach Succeeded
+# Wait ~2-3 minutes for Succeeded
 oc get csv -n openshift-logging -w
 ```
 
 ### 2. Deploy Audit Radar
 
 ```bash
-helm install audit-radar ./Helm/audit-radar
+helm install audit-radar ./Helm/audit-radar-openshift
 ```
 
-All secrets (PostgreSQL password, OAuth client secret, basic auth password) are generated automatically from the release name — no manual secret management required.
+All secrets (PostgreSQL password, OAuth client secret, basic auth password) are generated automatically — no manual configuration required.
 
 ### 3. Apply cluster-level configuration
 
 ```bash
-# Cluster Log Forwarder — sends audit events to the collector
+# Cluster Log Forwarder — forwards audit events to the collector
 oc apply -f deploy/05-clf.yaml
 ```
 
 ```bash
-# APIServer audit policy — enables WriteRequestBodies for full field-level change capture
-# ⚠ WARNING: This triggers a rolling restart of all kube-apiserver pods.
-# The cluster remains fully available during the restart but it takes 5-10 minutes.
-# Monitor progress with: oc get pods -n openshift-kube-apiserver -w
+# APIServer audit policy — enables field-level change capture
+# ⚠ WARNING: Triggers a rolling restart of kube-apiserver pods (~5-10 min).
+# Cluster stays available. Monitor with: oc get pods -n openshift-kube-apiserver -w
 oc apply -f deploy/07-apiserver-audit.yaml
 ```
 
@@ -102,95 +116,132 @@ oc get route audit-ui -n audit-vision
 
 ---
 
-## Install — Manual (without Helm)
+## Install on Kubernetes / k3s
 
-If Helm is not available, all components can be applied individually with `oc apply`.
+### Prerequisites
 
-### 1. Install OpenShift Logging operator
+- Kubernetes 1.24+ or k3s with cluster-admin
+- Helm 3.x
+- Audit logging enabled on kube-apiserver (see below)
 
-```bash
-oc apply -f deploy/04b-logging-operator.yaml
-oc get csv -n openshift-logging -w   # wait for Succeeded
+### 1. Enable audit logging
+
+Audit Radar requires the kube-apiserver to write audit logs to a file on the node. Refer to your distribution's documentation for how to enable audit logging. The audit log path must match `vector.auditLogPath` in values (default: `/var/log/k3s-audit.log`).
+
+Example audit policy is included in `deploy-k8s/audit-policy.yaml`.
+
+### 2. Set your node IP in values
+
+Edit `Helm/audit-radar-k8s/values.yaml`:
+
+```yaml
+ui:
+  ingress:
+    host: "audit.<your-node-ip>.nip.io"
 ```
 
-### 2. Edit secrets before applying
-
-Before applying, replace placeholder values in `deploy/12-oauth.yaml`:
+Or override on install:
 
 ```bash
-# Generate OAuth client secret
-SECRET=$(openssl rand -hex 32)
-# Replace REPLACE_WITH_RANDOM_SECRET in deploy/12-oauth.yaml with $SECRET
+helm install audit-radar ./Helm/audit-radar-k8s \
+  --set ui.ingress.host=audit.192.168.10.30.nip.io
 ```
 
-### 3. Deploy the stack
+### 3. Deploy Audit Radar
 
 ```bash
-oc apply -f deploy/00-namespace.yaml
-oc apply -f deploy/01-postgres.yaml
-oc apply -f deploy/11-rbac.yaml
-oc apply -f deploy/12-oauth.yaml
-oc apply -f deploy/02-collector.yaml
-oc apply -f deploy/03-ui.yaml
-oc apply -f deploy/08-ollama.yaml    # pulls granite3.2:2b (~1.5GB) — takes a while
-oc apply -f deploy/09-analyzer.yaml
-oc apply -f deploy/10-alerter.yaml
-
-# Create basic auth secret
-oc create secret generic audit-ui-basic-secret \
-  --from-literal=AUTH_BASIC_USER=admin \
-  --from-literal=AUTH_BASIC_PASS=yourpassword \
-  -n audit-vision
+helm install audit-radar ./Helm/audit-radar-k8s
 ```
 
-### 4. Apply cluster-level configuration
+### 4. Open the UI
 
 ```bash
-oc apply -f deploy/05-clf.yaml
-```
-
-```bash
-# ⚠ WARNING: Triggers a rolling restart of kube-apiserver pods (5-10 min).
-# Cluster stays available. Monitor with: oc get pods -n openshift-kube-apiserver -w
-oc apply -f deploy/07-apiserver-audit.yaml
-```
-
-### 5. Add admin users
-
-```bash
-oc adm groups new audit-radar-admins
-oc adm groups new audit-radar-editors
-oc adm groups add-users audit-radar-admins <your-username>
+kubectl get ingress -n audit-vision
+# Open http://audit.<your-node-ip>.nip.io
 ```
 
 ---
 
-## About the APIServer Audit Policy
+## Default Credentials
 
-Applying `deploy/07-apiserver-audit.yaml` enables the `WriteRequestBodies` audit profile for the `audit-write-users` group. This allows Audit Radar to capture field-level changes — for example, showing that a Deployment's replica count changed from 3 to 1, or that an image tag was updated.
+> ⚠ **Change the basic auth password before exposing the UI externally.**
 
-**What happens when you apply it:**
+When installed via Helm, the basic auth password is auto-generated from the release name. To retrieve it:
 
-- OpenShift performs a rolling restart of all `kube-apiserver` pods
-- This takes approximately 5-10 minutes on a standard 3-master cluster
-- The cluster remains fully available during the restart — workloads are not affected
-- Monitor the rollout with: `oc get pods -n openshift-kube-apiserver -w`
+```bash
+# OpenShift
+oc get secret audit-ui-basic-secret -n audit-vision \
+  -o jsonpath='{.data.AUTH_BASIC_PASS}' | base64 -d
 
-**Without this policy**, Audit Radar still works — you get full actor/verb/resource/result visibility, but without request body diffs.
+# Kubernetes
+kubectl get secret audit-ui-basic-secret -n audit-vision \
+  -o jsonpath='{.data.AUTH_BASIC_PASS}' | base64 -d
+```
+
+When installed manually (without Helm), the default credentials are:
+
+| Field | Value |
+|-------|-------|
+| Username | `admin` |
+| Password | `changeme` |
+
+Change immediately after install:
+
+```bash
+# OpenShift
+oc create secret generic audit-ui-basic-secret \
+  --from-literal=AUTH_BASIC_USER=admin \
+  --from-literal=AUTH_BASIC_PASS=yournewpassword \
+  -n audit-vision --dry-run=client -o yaml | oc apply -f -
+oc rollout restart deployment/audit-ui -n audit-vision
+
+# Kubernetes
+kubectl create secret generic audit-ui-basic-secret \
+  --from-literal=AUTH_BASIC_USER=admin \
+  --from-literal=AUTH_BASIC_PASS=yournewpassword \
+  -n audit-vision --dry-run=client -o yaml | kubectl apply -f -
+kubectl rollout restart deployment/audit-ui -n audit-vision
+```
+
+---
+
+## Storage
+
+Audit Radar uses persistent storage for PostgreSQL (events) and Ollama (AI model ~1.5GB).
+
+By default both charts use the cluster's **default StorageClass** — no configuration needed on most clusters.
+
+| Cluster | Default StorageClass | Notes |
+|---------|---------------------|-------|
+| k3s | `local-path` | Stores data on node at `/var/lib/rancher/k3s/storage/` |
+| OpenShift / OCS | set explicitly | Default chart uses `ocs-external-storagecluster-ceph-rbd` |
+| Other clusters | cluster default | Check with `kubectl get storageclass` |
+
+Check available storage classes on your cluster:
+
+```bash
+kubectl get storageclass
+```
+
+To use a specific StorageClass:
+
+```bash
+helm install audit-radar ./Helm/audit-radar-k8s \
+  --set postgres.storageClassName=my-storage-class \
+  --set ollama.storageClassName=my-storage-class
+```
 
 ---
 
 ## Configuration
 
-All configuration is in `Helm/audit-radar/values.yaml`.
+### OpenShift — `Helm/audit-radar-openshift/values.yaml`
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
 | `namespace` | `audit-vision` | Target namespace |
-| `postgres.user` | `auditvision` | PostgreSQL user |
 | `postgres.storage` | `10Gi` | PVC size for PostgreSQL |
 | `collector.retentionDays` | `30` | Event retention in days (0 = disabled) |
-| `ui.auth.clientId` | `audit-radar` | OCP OAuth client ID |
 | `ui.auth.adminGroup` | `audit-radar-admins` | OCP group for admin role |
 | `ui.auth.editorGroup` | `audit-radar-editors` | OCP group for editor role |
 | `ui.auth.basicUser` | `admin` | Basic auth username |
@@ -200,10 +251,25 @@ All configuration is in `Helm/audit-radar/values.yaml`.
 | `alerter.slack.webhookUrl` | `""` | Slack incoming webhook URL |
 | `alerter.smtp.host` | `""` | SMTP host for email alerts |
 
+### Kubernetes — `Helm/audit-radar-k8s/values.yaml`
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `namespace` | `audit-vision` | Target namespace |
+| `postgres.storage` | `10Gi` | PVC size for PostgreSQL |
+| `collector.retentionDays` | `30` | Event retention in days (0 = disabled) |
+| `ui.auth.basicUser` | `admin` | Basic auth username |
+| `ui.ingress.host` | `audit.192.168.10.30.nip.io` | Ingress hostname — **change this** |
+| `ollama.enabled` | `true` | Deploy Ollama + AI analyzer |
+| `ollama.model` | `granite3.2:2b` | Model to pull (~1.5GB) |
+| `vector.auditLogPath` | `/var/log/k3s-audit.log` | Path to audit log on host |
+| `alerter.slack.webhookUrl` | `""` | Slack incoming webhook URL |
+| `alerter.smtp.host` | `""` | SMTP host for email alerts |
+
 ### Disable AI analyzer (resource-constrained clusters)
 
 ```bash
-helm install audit-radar ./Helm/audit-radar \
+helm install audit-radar ./Helm/audit-radar-k8s \
   --set ollama.enabled=false \
   --set analyzer.enabled=false
 ```
@@ -212,12 +278,14 @@ helm install audit-radar ./Helm/audit-radar \
 
 ## Role Mapping
 
-| OCP Group | Audit Radar Role | Access |
-|-----------|-----------------|--------|
-| `audit-radar-admins` | admin | Full access including settings |
-| `audit-radar-editors` | editor | Alert rules, no settings |
+### OpenShift
+
+| Source | Role | Access |
+|--------|------|--------|
+| OCP group `audit-radar-admins` | admin | Full access including settings |
+| OCP group `audit-radar-editors` | editor | Alert rules, no settings |
 | Any authenticated OCP user | viewer | Read-only event stream |
-| Unauthenticated | — | Redirect to login |
+| Basic auth user | admin (configurable) | Full access |
 
 ```bash
 # Grant admin access
@@ -225,146 +293,61 @@ oc adm groups add-users audit-radar-admins alice
 
 # Grant editor access
 oc adm groups add-users audit-radar-editors bob
+```
 
-# Any other OCP user gets viewer role automatically — no group needed
+### Kubernetes
+
+On plain Kubernetes there is no OCP OAuth. A single basic auth user is supported — all users share the same credentials. Multi-user support with individual roles requires an OIDC provider (Keycloak, Dex).
+
+Retrieve the generated password after install:
+
+```bash
+kubectl get secret audit-ui-basic-secret -n audit-vision   -o jsonpath='{.data.AUTH_BASIC_PASS}' | base64 -d
 ```
 
 ---
 
 ## Exclusion Filters
 
-Noisy service account traffic (cert-manager, OLM, monitoring) can be dropped before it hits the database using exclusion rules in the Settings UI.
+Noisy service account traffic can be dropped before it hits the database using exclusion rules in **Settings → Exclusion Filters**.
 
-![Exclusion Filters](docs/images/exclusion-filters.png)
-
-Filters support wildcard actor matching:
+Wildcard actor matching is supported:
 
 ```
 system:serviceaccount:cert-manager:*
 system:serviceaccount:openshift-*
 ```
 
-The collector reloads rules every 30 seconds — no restart required.
-
----
----
-
-## Secrets & Passwords
-
-All secrets are auto-generated on first `helm install` and stored in Kubernetes Secrets in the `audit-vision` namespace. No passwords appear in `values.yaml` or the command line.
-
-### What gets generated
-
-| Secret | Key | Used by | Description |
-|--------|-----|---------|-------------|
-| `postgres-secret` | `POSTGRESQL_PASSWORD` | postgres, collector, ui, analyzer, alerter | PostgreSQL password |
-| `audit-ui-oauth-secret` | `AUTH_CLIENT_SECRET` | audit-ui, OAuthClient | OCP OAuth2 client secret |
-| `audit-ui-basic-secret` | `AUTH_BASIC_PASS` | audit-ui | Basic auth fallback password |
-
-Secrets are derived deterministically from the Helm release name — upgrades never rotate credentials unexpectedly.
-
-### View current passwords
-
-```bash
-# PostgreSQL password
-oc get secret postgres-secret -n audit-vision -o jsonpath='{.data.POSTGRESQL_PASSWORD}' | base64 -d
-
-# Basic auth password
-oc get secret audit-ui-basic-secret -n audit-vision -o jsonpath='{.data.AUTH_BASIC_PASS}' | base64 -d
-```
-
-### Change the basic auth password
-
-```bash
-oc create secret generic audit-ui-basic-secret \
-  --from-literal=AUTH_BASIC_USER=admin \
-  --from-literal=AUTH_BASIC_PASS=yournewpassword \
-  -n audit-vision \
-  --dry-run=client -o yaml | oc apply -f -
-
-# Restart UI to pick up the new secret (~10 seconds)
-oc rollout restart deployment/audit-ui -n audit-vision
-```
-
-### Change the PostgreSQL password
-
-```bash
-# 1. Update the secret
-oc create secret generic postgres-secret \
-  --from-literal=POSTGRESQL_USER=auditvision \
-  --from-literal=POSTGRESQL_PASSWORD=yournewpassword \
-  --from-literal=POSTGRESQL_DATABASE=auditvision \
-  --from-literal=DATABASE_URL="postgres://auditvision:yournewpassword@postgres:5432/auditvision?sslmode=disable" \
-  -n audit-vision \
-  --dry-run=client -o yaml | oc apply -f -
-
-# 2. Update the password inside PostgreSQL itself
-oc exec -it deployment/postgres -n audit-vision -- \
-  psql -U auditvision -c "ALTER USER auditvision WITH PASSWORD 'yournewpassword';"
-
-# 3. Restart all components
-oc rollout restart deployment/audit-collector deployment/audit-ui deployment/audit-analyzer deployment/audit-alerter -n audit-vision
-```
+Rules reload every 30 seconds — no restart required.
 
 ---
 
-## Alerting Configuration
+## Alerting
 
-### Slack
+Slack webhooks and email (SMTP) are configured directly in the UI under **Settings → Alert Settings**. No restart required — changes apply within 60 seconds.
 
-1. Go to your Slack workspace → **Apps** → **Incoming Webhooks** → **Add to Slack**
-2. Choose a channel and copy the webhook URL
-3. Update the ConfigMap:
+---
 
-```bash
-oc patch configmap audit-alerter-config -n audit-vision \
-  --type=merge -p '{"data":{"ALERT_SLACK_WEBHOOK":"https://hooks.slack.com/services/T.../B.../xxx"}}'
+## Secrets Management
 
-oc rollout restart deployment/audit-alerter -n audit-vision
-```
+All secrets are auto-generated on `helm install` and derived deterministically from the release name — upgrades never rotate credentials unexpectedly.
 
-### Email (SMTP)
-
-```bash
-oc patch configmap audit-alerter-config -n audit-vision --type=merge -p '{
-  "data": {
-    "ALERT_SMTP_HOST": "smtp.gmail.com",
-    "ALERT_SMTP_PORT": "587",
-    "ALERT_SMTP_USER": "alerts@yourcompany.com",
-    "ALERT_EMAIL_FROM": "audit-radar@yourcompany.com",
-    "ALERT_EMAIL_TO": "security@yourcompany.com"
-  }
-}'
-
-# SMTP password goes into the Secret
-oc create secret generic audit-alerter-secret \
-  --from-literal=ALERT_SMTP_PASS=yoursmtppassword \
-  -n audit-vision \
-  --dry-run=client -o yaml | oc apply -f -
-
-oc rollout restart deployment/audit-alerter -n audit-vision
-```
-
-> **Gmail:** use an [App Password](https://support.google.com/accounts/answer/185833) instead of your account password.
-
-### Alert rules
-
-Two built-in rules are active by default:
-
-| Rule | ConfigMap key | Default |
-|------|--------------|--------|
-| Alert on HIGH risk events (Granite scored) | `ALERT_ON_HIGH` | `true` |
-| Alert on human DELETE actions | `ALERT_ON_HUMAN_DELETE` | `true` |
-
-Custom rules can be configured from **Settings → Alert Rules** in the UI — no restart required.
+| Secret | Key | Description |
+|--------|-----|-------------|
+| `postgres-secret` | `DATABASE_URL` | PostgreSQL connection string |
+| `audit-ui-oauth-secret` | `AUTH_CLIENT_SECRET` | OCP OAuth2 client secret |
+| `audit-ui-basic-secret` | `AUTH_BASIC_PASS` | Basic auth password |
 
 ---
 
 ## Upgrade
-## Upgrade
 
 ```bash
-helm upgrade audit-radar ./Helm/audit-radar
+# OpenShift
+helm upgrade audit-radar ./Helm/audit-radar-openshift
+
+# Kubernetes
+helm upgrade audit-radar ./Helm/audit-radar-k8s
 ```
 
 ---
@@ -372,13 +355,18 @@ helm upgrade audit-radar ./Helm/audit-radar
 ## Uninstall
 
 ```bash
+# OpenShift
 helm uninstall audit-radar
 oc delete namespace audit-vision
-
-# Cluster-scoped resources
 oc delete clusterrole audit-ui-groups-reader audit-ui-oauth-sync audit-vision-collector
-oc delete clusterrolebinding audit-ui-groups-reader audit-ui-oauth-sync audit-vision-collector audit-vision-collector-audit-logs
+oc delete clusterrolebinding audit-ui-groups-reader audit-ui-oauth-sync audit-vision-collector
 oc delete oauthclient audit-radar
+
+# Kubernetes
+helm uninstall audit-radar
+kubectl delete namespace audit-vision
+kubectl delete clusterrole audit-vision-collector
+kubectl delete clusterrolebinding audit-vision-collector
 ```
 
 ---
