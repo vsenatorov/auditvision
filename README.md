@@ -1,7 +1,7 @@
 # Audit Radar
 
 <p align="center">
-  <img src="https://audit-radar.com/logo.svg" alt="Audit Radar" width="80"/>
+  <img src="https://raw.githubusercontent.com/vsenatorov/auditvision/main/docs/images/logo.svg" alt="Audit Radar" width="320"/>
 </p>
 
 <p align="center">
