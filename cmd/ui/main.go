@@ -2256,6 +2256,43 @@ var summaryTmpl = template.Must(template.New("summary").Funcs(template.FuncMap{
     {{else}}<div></div>{{end}}
   </div>
 </div>
+<div id="status-bar">
+  <div class="status-left">
+    <a href="https://audit-radar.com" target="_blank" class="status-brand"><span class="status-audit">audit</span><span class="status-dot-sep">·</span><span class="status-radar">radar</span></a>
+    <span class="status-sep">·</span>
+    <a href="https://github.com/vsenatorov/auditvision" target="_blank" class="status-gh">@vsenatorov</a>
+  </div>
+  <div class="status-right">
+    <span class="status-item" id="svc-collector"><span class="status-dot loading"></span>collector</span>
+    <span class="status-item" id="svc-analyzer"><span class="status-dot loading"></span>analyzer</span>
+    <span class="status-item" id="svc-alerter"><span class="status-dot loading"></span>alerter</span>
+    <span class="status-item" id="svc-db"><span class="status-dot loading"></span>postgres</span>
+  </div>
+</div>
+<style>
+#status-bar{position:fixed;bottom:0;left:0;right:0;height:24px;background:var(--bg2);border-top:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;padding:0 16px;font-size:10px;font-family:var(--mono);color:var(--text3);z-index:100}
+.status-left,.status-right{display:flex;align-items:center;gap:8px}
+.status-brand{display:flex;align-items:center;text-decoration:none;font-weight:700;letter-spacing:-0.02em}
+.status-audit{color:var(--red)}.status-dot-sep{color:rgba(255,255,255,0.15);margin:0 1px}.status-radar{color:var(--blue)}
+.status-sep{color:var(--border)}.status-gh{color:var(--text3);text-decoration:none;transition:color .15s}.status-gh:hover{color:var(--text2)}
+.status-item{display:flex;align-items:center;gap:4px}
+.status-dot{width:6px;height:6px;border-radius:50%;background:var(--text3);display:inline-block;transition:background .3s}
+.status-dot.ok{background:var(--green);box-shadow:0 0 4px var(--green)}.status-dot.err{background:var(--red);box-shadow:0 0 4px var(--red)}.status-dot.loading{background:var(--yellow);animation:blink 1.2s infinite}
+body{padding-bottom:24px}
+</style>
+<script>
+(function(){
+  var svcs=[{id:'svc-collector',url:'/healthz'},{id:'svc-analyzer',url:'/api/analyzer/health'},{id:'svc-alerter',url:'/api/alerter/health'},{id:'svc-db',url:'/api/db/health'}];
+  function check(){svcs.forEach(function(s){
+    var el=document.getElementById(s.id);if(!el)return;
+    var d=el.querySelector('.status-dot');
+    fetch(s.url,{signal:AbortSignal.timeout(3000)})
+      .then(function(r){d.className='status-dot '+(r.ok?'ok':'err');})
+      .catch(function(){d.className='status-dot err';});
+  });}
+  check();setInterval(check,30000);
+})();
+</script>
 </body>
 </html>
 `))
@@ -3236,6 +3273,43 @@ var settingsTmpl = template.Must(template.New("settings").Parse(`<!DOCTYPE html>
 
   loadExclusions();
 </script>
+<div id="status-bar">
+  <div class="status-left">
+    <a href="https://audit-radar.com" target="_blank" class="status-brand"><span class="status-audit">audit</span><span class="status-dot-sep">·</span><span class="status-radar">radar</span></a>
+    <span class="status-sep">·</span>
+    <a href="https://github.com/vsenatorov/auditvision" target="_blank" class="status-gh">@vsenatorov</a>
+  </div>
+  <div class="status-right">
+    <span class="status-item" id="svc-collector"><span class="status-dot loading"></span>collector</span>
+    <span class="status-item" id="svc-analyzer"><span class="status-dot loading"></span>analyzer</span>
+    <span class="status-item" id="svc-alerter"><span class="status-dot loading"></span>alerter</span>
+    <span class="status-item" id="svc-db"><span class="status-dot loading"></span>postgres</span>
+  </div>
+</div>
+<style>
+#status-bar{position:fixed;bottom:0;left:0;right:0;height:24px;background:var(--bg2);border-top:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;padding:0 16px;font-size:10px;font-family:var(--mono);color:var(--text3);z-index:100}
+.status-left,.status-right{display:flex;align-items:center;gap:8px}
+.status-brand{display:flex;align-items:center;text-decoration:none;font-weight:700;letter-spacing:-0.02em}
+.status-audit{color:var(--red)}.status-dot-sep{color:rgba(255,255,255,0.15);margin:0 1px}.status-radar{color:var(--blue)}
+.status-sep{color:var(--border)}.status-gh{color:var(--text3);text-decoration:none;transition:color .15s}.status-gh:hover{color:var(--text2)}
+.status-item{display:flex;align-items:center;gap:4px}
+.status-dot{width:6px;height:6px;border-radius:50%;background:var(--text3);display:inline-block;transition:background .3s}
+.status-dot.ok{background:var(--green);box-shadow:0 0 4px var(--green)}.status-dot.err{background:var(--red);box-shadow:0 0 4px var(--red)}.status-dot.loading{background:var(--yellow);animation:blink 1.2s infinite}
+body{padding-bottom:24px}
+</style>
+<script>
+(function(){
+  var svcs=[{id:'svc-collector',url:'/healthz'},{id:'svc-analyzer',url:'/api/analyzer/health'},{id:'svc-alerter',url:'/api/alerter/health'},{id:'svc-db',url:'/api/db/health'}];
+  function check(){svcs.forEach(function(s){
+    var el=document.getElementById(s.id);if(!el)return;
+    var d=el.querySelector('.status-dot');
+    fetch(s.url,{signal:AbortSignal.timeout(3000)})
+      .then(function(r){d.className='status-dot '+(r.ok?'ok':'err');})
+      .catch(function(){d.className='status-dot err';});
+  });}
+  check();setInterval(check,30000);
+})();
+</script>
 </body>
 </html>
 `))
@@ -3486,6 +3560,43 @@ function toggleTheme(){
     td.textContent=d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate())+' '+pad(d.getHours())+':'+pad(d.getMinutes())+':'+pad(d.getSeconds());
     td.title=raw;
   });
+})();
+</script>
+<div id="status-bar">
+  <div class="status-left">
+    <a href="https://audit-radar.com" target="_blank" class="status-brand"><span class="status-audit">audit</span><span class="status-dot-sep">·</span><span class="status-radar">radar</span></a>
+    <span class="status-sep">·</span>
+    <a href="https://github.com/vsenatorov/auditvision" target="_blank" class="status-gh">@vsenatorov</a>
+  </div>
+  <div class="status-right">
+    <span class="status-item" id="svc-collector"><span class="status-dot loading"></span>collector</span>
+    <span class="status-item" id="svc-analyzer"><span class="status-dot loading"></span>analyzer</span>
+    <span class="status-item" id="svc-alerter"><span class="status-dot loading"></span>alerter</span>
+    <span class="status-item" id="svc-db"><span class="status-dot loading"></span>postgres</span>
+  </div>
+</div>
+<style>
+#status-bar{position:fixed;bottom:0;left:0;right:0;height:24px;background:var(--bg2);border-top:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;padding:0 16px;font-size:10px;font-family:var(--mono);color:var(--text3);z-index:100}
+.status-left,.status-right{display:flex;align-items:center;gap:8px}
+.status-brand{display:flex;align-items:center;text-decoration:none;font-weight:700;letter-spacing:-0.02em}
+.status-audit{color:var(--red)}.status-dot-sep{color:rgba(255,255,255,0.15);margin:0 1px}.status-radar{color:var(--blue)}
+.status-sep{color:var(--border)}.status-gh{color:var(--text3);text-decoration:none;transition:color .15s}.status-gh:hover{color:var(--text2)}
+.status-item{display:flex;align-items:center;gap:4px}
+.status-dot{width:6px;height:6px;border-radius:50%;background:var(--text3);display:inline-block;transition:background .3s}
+.status-dot.ok{background:var(--green);box-shadow:0 0 4px var(--green)}.status-dot.err{background:var(--red);box-shadow:0 0 4px var(--red)}.status-dot.loading{background:var(--yellow);animation:blink 1.2s infinite}
+body{padding-bottom:24px}
+</style>
+<script>
+(function(){
+  var svcs=[{id:'svc-collector',url:'/healthz'},{id:'svc-analyzer',url:'/api/analyzer/health'},{id:'svc-alerter',url:'/api/alerter/health'},{id:'svc-db',url:'/api/db/health'}];
+  function check(){svcs.forEach(function(s){
+    var el=document.getElementById(s.id);if(!el)return;
+    var d=el.querySelector('.status-dot');
+    fetch(s.url,{signal:AbortSignal.timeout(3000)})
+      .then(function(r){d.className='status-dot '+(r.ok?'ok':'err');})
+      .catch(function(){d.className='status-dot err';});
+  });}
+  check();setInterval(check,30000);
 })();
 </script>
 </body>
