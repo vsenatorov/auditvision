@@ -125,6 +125,24 @@ func (s *PgStore) migrate(ctx context.Context) error {
 		    comment     TEXT         NOT NULL DEFAULT '',
 		    created_at  TIMESTAMPTZ  NOT NULL DEFAULT NOW()
 		);
+
+		-- Auth / login events — captured from oauthaccesstokens + tokenrequests
+		CREATE TABLE IF NOT EXISTS auth_events (
+		    id          BIGSERIAL    PRIMARY KEY,
+		    audit_id    TEXT         NOT NULL UNIQUE,
+		    ts          TIMESTAMPTZ  NOT NULL,
+		    actor       TEXT         NOT NULL DEFAULT '',
+		    method      TEXT         NOT NULL DEFAULT '',
+		    source_ip   TEXT         NOT NULL DEFAULT '',
+		    user_agent  TEXT         NOT NULL DEFAULT '',
+		    result      INT          NOT NULL DEFAULT 0,
+		    success     BOOLEAN      NOT NULL DEFAULT FALSE,
+		    event_type  TEXT         NOT NULL DEFAULT '',
+		    received_at TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+		);
+		CREATE INDEX IF NOT EXISTS idx_auth_ts     ON auth_events (ts DESC);
+		CREATE INDEX IF NOT EXISTS idx_auth_actor  ON auth_events (actor);
+		CREATE INDEX IF NOT EXISTS idx_auth_success ON auth_events (success);
 	`)
 	if err != nil {
 		return err
@@ -749,4 +767,102 @@ func fillTop(ctx context.Context, pool *pgxpool.Pool, query string, args []any, 
 		dest[key] = count
 	}
 	return rows.Err()
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// AuthStore implementation
+// ─────────────────────────────────────────────────────────────────────────────
+
+func (s *PgStore) InsertAuthEvent(ctx context.Context, ev model.AuthEvent) error {
+	_, err := s.pool.Exec(ctx, `
+		INSERT INTO auth_events (audit_id, ts, actor, method, source_ip, user_agent, result, success, event_type)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+		ON CONFLICT (audit_id) DO NOTHING`,
+		ev.AuditID, ev.Timestamp, ev.Actor, ev.Method, ev.SourceIP, ev.UserAgent,
+		ev.Result, ev.Success, ev.EventType,
+	)
+	return err
+}
+
+func (s *PgStore) GetAuthEvents(ctx context.Context, f model.AuthEventFilter) ([]model.AuthEvent, error) {
+	where, args := buildAuthWhere(f)
+	limit := f.Limit
+	if limit <= 0 || limit > 500 {
+		limit = 100
+	}
+	offset := f.Offset
+	if offset < 0 {
+		offset = 0
+	}
+	query := fmt.Sprintf(`
+		SELECT id, audit_id, ts, actor, method, source_ip, user_agent, result, success, event_type
+		FROM auth_events
+		%s
+		ORDER BY ts DESC
+		LIMIT %d OFFSET %d
+	`, where, limit, offset)
+	rows, err := s.pool.Query(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var events []model.AuthEvent
+	for rows.Next() {
+		var ev model.AuthEvent
+		var ts time.Time
+		if err := rows.Scan(&ev.ID, &ev.AuditID, &ts, &ev.Actor, &ev.Method,
+			&ev.SourceIP, &ev.UserAgent, &ev.Result, &ev.Success, &ev.EventType); err != nil {
+			return nil, err
+		}
+		ev.Timestamp = ts.UTC().Format(tsFormat)
+		events = append(events, ev)
+	}
+	return events, rows.Err()
+}
+
+func (s *PgStore) CountAuthEvents(ctx context.Context, f model.AuthEventFilter) (int, error) {
+	where, args := buildAuthWhere(f)
+	var count int
+	err := s.pool.QueryRow(ctx, fmt.Sprintf("SELECT COUNT(*) FROM auth_events %s", where), args...).Scan(&count)
+	return count, err
+}
+
+func buildAuthWhere(f model.AuthEventFilter) (string, []any) {
+	var conds []string
+	var args []any
+	n := 1
+	if f.Actor != "" {
+		conds = append(conds, fmt.Sprintf("actor ILIKE $%d", n))
+		args = append(args, "%"+f.Actor+"%")
+		n++
+	}
+	if f.Method != "" {
+		conds = append(conds, fmt.Sprintf("method = $%d", n))
+		args = append(args, f.Method)
+		n++
+	}
+	if f.EventType != "" {
+		conds = append(conds, fmt.Sprintf("event_type = $%d", n))
+		args = append(args, f.EventType)
+		n++
+	}
+	if f.Success != nil {
+		conds = append(conds, fmt.Sprintf("success = $%d", n))
+		args = append(args, *f.Success)
+		n++
+	}
+	if f.From != "" {
+		conds = append(conds, fmt.Sprintf("ts >= $%d", n))
+		args = append(args, f.From)
+		n++
+	}
+	if f.To != "" {
+		conds = append(conds, fmt.Sprintf("ts <= $%d", n))
+		args = append(args, f.To)
+		n++
+	}
+	if len(conds) == 0 {
+		return "", args
+	}
+	return "WHERE " + strings.Join(conds, " AND "), args
 }

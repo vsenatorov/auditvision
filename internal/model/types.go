@@ -201,6 +201,36 @@ type ExclusionRule struct {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Auth / Login events — captured from oauthaccesstokens + tokenrequests
+// ─────────────────────────────────────────────────────────────────────────────
+
+// AuthEvent represents a login, logout or failed auth attempt.
+type AuthEvent struct {
+	ID        int64  `json:"id"`
+	Timestamp string `json:"timestamp"`
+	Actor     string `json:"actor"`
+	Method    string `json:"method"`   // web-console | oc-cli | api-token | unknown
+	SourceIP  string `json:"sourceIP"`
+	UserAgent string `json:"userAgent"`
+	Result    int    `json:"result"`   // HTTP status code
+	Success   bool   `json:"success"`
+	EventType string `json:"eventType"` // login | logout | token-issued | token-revoked | failed
+	AuditID   string `json:"auditID"`
+}
+
+// AuthEventFilter for querying auth_events.
+type AuthEventFilter struct {
+	Actor     string
+	Method    string
+	Success   *bool
+	EventType string
+	From      string
+	To        string
+	Limit     int
+	Offset    int
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Internal helpers for enrich package
 // ─────────────────────────────────────────────────────────────────────────────
 

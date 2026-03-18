@@ -1,107 +1,120 @@
 package main
 
 import (
-	"bytes"
-	"context"
-	"crypto/tls"
-	"crypto/x509"
-	"encoding/csv"
-	"encoding/json"
-	"io"
-	"fmt"
-	"html/template"
-	"log"
-	"net/http"
-	"net/url"
-	"os"
-	"strconv"
-	"strings"
-	"time"
+    "bytes"
+    "context"
+    "crypto/tls"
+    "crypto/x509"
+    "encoding/csv"
+    "encoding/json"
+    "io"
+    "fmt"
+    "html/template"
+    "log"
+    "net/http"
+    "net/url"
+    "os"
+    "strconv"
+    "strings"
+    "time"
 
-	"github.com/auditvision/internal/model"
-	"github.com/auditvision/internal/normalize"
-	"github.com/auditvision/internal/store"
-	"github.com/jackc/pgx/v5/pgxpool"
+    "github.com/auditvision/internal/model"
+    "github.com/auditvision/internal/normalize"
+    "github.com/auditvision/internal/store"
+    "github.com/jackc/pgx/v5/pgxpool"
 )
 
 func main() {
-	ctx := context.Background()
+    ctx := context.Background()
 
-	dsn := mustEnv("DATABASE_URL")
-	listenAddr := envOr("LISTEN_ADDR", ":8080")
+    dsn := mustEnv("DATABASE_URL")
+    listenAddr := envOr("LISTEN_ADDR", ":8080")
 
-	db, err := store.New(ctx, dsn)
-	if err != nil {
-		log.Fatalf("ui: connect to postgres: %v", err)
-	}
-	defer db.Close()
+    db, err := store.New(ctx, dsn)
+    if err != nil {
+	log.Fatalf("ui: connect to postgres: %v", err)
+    }
+    defer db.Close()
 
-	pool, err := pgxpool.New(ctx, dsn)
-	if err != nil {
-		log.Fatalf("ui: pgxpool connect: %v", err)
-	}
-	defer pool.Close()
+    pool, err := pgxpool.New(ctx, dsn)
+    if err != nil {
+	log.Fatalf("ui: pgxpool connect: %v", err)
+    }
+    defer pool.Close()
 
-	// Ensure alert_rules table exists (alerter may not have run yet)
-	if _, err := pool.Exec(ctx, `
-		CREATE TABLE IF NOT EXISTS alert_rules (
-		    id           BIGSERIAL PRIMARY KEY,
-		    name         TEXT NOT NULL,
-		    enabled      BOOLEAN NOT NULL DEFAULT TRUE,
-		    conditions   JSONB NOT NULL DEFAULT '{}',
-		    destinations TEXT[] NOT NULL DEFAULT '{email}',
-		    created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
-		);
-		CREATE TABLE IF NOT EXISTS alert_sent (
-		    audit_id   TEXT NOT NULL,
-		    reason     TEXT NOT NULL,
-		    sent_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-		    PRIMARY KEY (audit_id, reason)
-		);
-	`); err != nil {
-		log.Printf("ui: migrate alert_rules: %v", err)
-	}
+    // Ensure alert_rules table exists (alerter may not have run yet)
+    if _, err := pool.Exec(ctx, `
+	CREATE TABLE IF NOT EXISTS alert_rules (
+	    id           BIGSERIAL PRIMARY KEY,
+	    name         TEXT NOT NULL,
+	    enabled      BOOLEAN NOT NULL DEFAULT TRUE,
+	    conditions   JSONB NOT NULL DEFAULT '{}',
+	    destinations TEXT[] NOT NULL DEFAULT '{email}',
+	    created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+	);
+	CREATE TABLE IF NOT EXISTS alert_sent (
+	    audit_id   TEXT NOT NULL,
+	    reason     TEXT NOT NULL,
+	    sent_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+	    PRIMARY KEY (audit_id, reason)
+	);
+    `); err != nil {
+	log.Printf("ui: migrate alert_rules: %v", err)
+    }
 
-	srv := &uiServer{db: db, pool: pool}
+    srv := &uiServer{
+	db:          db,
+	pool:        pool,
+	analyzerURL: envOr("ANALYZER_URL", "http://audit-analyzer:8080"),
+	alerterURL:  envOr("ALERTER_URL", "http://audit-alerter:8080"),
+	namespace:   envOr("NAMESPACE", "audit-vision"),
+    }
 
-	// Auth DB migration
-	if err := srv.migrateAuth(ctx); err != nil {
-		log.Fatalf("ui: migrate auth: %v", err)
-	}
+    // Auth DB migration
+    if err := srv.migrateAuth(ctx); err != nil {
+	log.Fatalf("ui: migrate auth: %v", err)
+    }
 
-	// Clean expired sessions in background
-	go srv.cleanExpiredSessions(ctx)
+    // Clean expired sessions in background
+    go srv.cleanExpiredSessions(ctx)
 
-	// Auto-sync OAuthClient redirectURI to current cluster Route
-	go syncOAuthRedirectURI(ctx)
+    // Auto-sync OAuthClient redirectURI to current cluster Route
+    go syncOAuthRedirectURI(ctx)
 
-	mux := http.NewServeMux()
-	mux.HandleFunc("/healthz", srv.healthz)
-	mux.HandleFunc("/auth/login", srv.authLoginPage)
-	mux.HandleFunc("/auth/ocp", srv.authOCP)
-	mux.HandleFunc("/auth/basic", srv.authBasic)
-	mux.HandleFunc("/auth/callback", srv.authCallback)
-	mux.HandleFunc("/auth/logout", srv.authLogout)
-	mux.HandleFunc("/events/", srv.authMiddleware(srv.eventByID, RoleViewer))
-	mux.HandleFunc("/events", srv.authMiddleware(srv.events, RoleViewer))
-	mux.HandleFunc("/summary", srv.authMiddleware(srv.summary, RoleViewer))
-	mux.HandleFunc("/settings", srv.authMiddleware(srv.settings, RoleAdmin))
-	mux.HandleFunc("/settings/rules", srv.authMiddleware(srv.rulesAPI, RoleEditor))
-	mux.HandleFunc("/settings/rules/", srv.authMiddleware(srv.rulesAPIItem, RoleEditor))
-	mux.HandleFunc("/settings/exclusions", srv.authMiddleware(srv.exclusionsAPI, RoleAdmin))
-	mux.HandleFunc("/settings/exclusions/", srv.authMiddleware(srv.exclusionsAPIItem, RoleAdmin))
-	mux.HandleFunc("/ui/export.csv", srv.authMiddleware(srv.exportCSV, RoleViewer))
-	mux.HandleFunc("/ui/stream", srv.authMiddleware(srv.stream, RoleViewer))
-	mux.HandleFunc("/ui", srv.authMiddleware(srv.ui, RoleViewer))
-	mux.HandleFunc("/", srv.root)
+    mux := http.NewServeMux()
+    mux.HandleFunc("/healthz", srv.healthz)
+    mux.HandleFunc("/api/analyzer/health", srv.analyzerHealth)
+    mux.HandleFunc("/api/alerter/health", srv.alerterHealth)
+    mux.HandleFunc("/api/db/health", srv.dbHealth)
+    mux.HandleFunc("/auth/login", srv.authLoginPage)
+    mux.HandleFunc("/auth/ocp", srv.authOCP)
+    mux.HandleFunc("/auth/basic", srv.authBasic)
+    mux.HandleFunc("/auth/callback", srv.authCallback)
+    mux.HandleFunc("/auth/logout", srv.authLogout)
+    mux.HandleFunc("/events/", srv.authMiddleware(srv.eventByID, RoleViewer))
+    mux.HandleFunc("/events", srv.authMiddleware(srv.events, RoleViewer))
+    mux.HandleFunc("/summary", srv.authMiddleware(srv.summary, RoleViewer))
+    mux.HandleFunc("/settings", srv.authMiddleware(srv.settings, RoleAdmin))
+    mux.HandleFunc("/settings/rules", srv.authMiddleware(srv.rulesAPI, RoleEditor))
+    mux.HandleFunc("/settings/rules/", srv.authMiddleware(srv.rulesAPIItem, RoleEditor))
+    mux.HandleFunc("/settings/exclusions", srv.authMiddleware(srv.exclusionsAPI, RoleAdmin))
+    mux.HandleFunc("/settings/exclusions/", srv.authMiddleware(srv.exclusionsAPIItem, RoleAdmin))
+    mux.HandleFunc("/ui/export.csv", srv.authMiddleware(srv.exportCSV, RoleViewer))
+    mux.HandleFunc("/ui/stream", srv.authMiddleware(srv.stream, RoleViewer))
+    mux.HandleFunc("/ui", srv.authMiddleware(srv.ui, RoleViewer))
+    mux.HandleFunc("/logins", srv.authMiddleware(srv.logins, RoleViewer))
+    mux.HandleFunc("/", srv.root)
 
-	log.Printf("ui: listening on %s", listenAddr)
-	log.Fatal(http.ListenAndServe(listenAddr, mux))
+    log.Printf("ui: listening on %s", listenAddr)
+    log.Fatal(http.ListenAndServe(listenAddr, mux))
 }
 
 type uiServer struct {
-	db   store.Store
-	pool *pgxpool.Pool
+    db          store.Store
+    pool        *pgxpool.Pool
+    analyzerURL string
+    alerterURL  string
+    namespace   string
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -109,44 +122,44 @@ type uiServer struct {
 // ─────────────────────────────────────────────────────────────────────────────
 
 func parseFilter(r *http.Request) model.EventFilter {
-	q := r.URL.Query()
-	result, _ := strconv.Atoi(q.Get("result"))
-	limit, _ := strconv.Atoi(q.Get("limit"))
-	offset, _ := strconv.Atoi(q.Get("offset"))
+    q := r.URL.Query()
+    result, _ := strconv.Atoi(q.Get("result"))
+    limit, _ := strconv.Atoi(q.Get("limit"))
+    offset, _ := strconv.Atoi(q.Get("offset"))
 
-	parseBool := func(key string) bool {
-		v := strings.ToLower(strings.TrimSpace(q.Get(key)))
-		return v == "true" || v == "1" || v == "yes"
-	}
+    parseBool := func(key string) bool {
+	v := strings.ToLower(strings.TrimSpace(q.Get(key)))
+	return v == "true" || v == "1" || v == "yes"
+    }
 
-	return model.EventFilter{
-		Actor:               q.Get("actor"),
-		Namespace:           q.Get("namespace"),
-		Resource:            q.Get("resource"),
-		Verb:                q.Get("verb"),
-		Source:              q.Get("source"),
-		ActorType:           q.Get("actorType"),
-		Name:                q.Get("name"),
-		ResultCode:          result,
-		RiskScore:           q.Get("riskScore"),
-		InterestingOnly:     parseBool("interestingOnly"),
-		HideServiceAccounts: parseBool("hideServiceAccounts"),
-		HumanOnly:           parseBool("humanOnly"),
-		From:                parseDatetime(q.Get("from")),
-		To:                  parseDatetime(q.Get("to")),
-		Limit:               limit,
-		Offset:              offset,
-	}
+    return model.EventFilter{
+	Actor:               q.Get("actor"),
+	Namespace:           q.Get("namespace"),
+	Resource:            q.Get("resource"),
+	Verb:                q.Get("verb"),
+	Source:              q.Get("source"),
+	ActorType:           q.Get("actorType"),
+	Name:                q.Get("name"),
+	ResultCode:          result,
+	RiskScore:           q.Get("riskScore"),
+	InterestingOnly:     parseBool("interestingOnly"),
+	HideServiceAccounts: parseBool("hideServiceAccounts"),
+	HumanOnly:           parseBool("humanOnly"),
+	From:                parseDatetime(q.Get("from")),
+	To:                  parseDatetime(q.Get("to")),
+	Limit:               limit,
+	Offset:              offset,
+    }
 }
 
 func writeJSON(w http.ResponseWriter, status int, data any) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	enc := json.NewEncoder(w)
-	enc.SetIndent("", "  ")
-	if err := enc.Encode(data); err != nil {
-		log.Printf("ui: write json: %v", err)
-	}
+    w.Header().Set("Content-Type", "application/json")
+    w.WriteHeader(status)
+    enc := json.NewEncoder(w)
+    enc.SetIndent("", "  ")
+    if err := enc.Encode(data); err != nil {
+	log.Printf("ui: write json: %v", err)
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -154,95 +167,129 @@ func writeJSON(w http.ResponseWriter, status int, data any) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 func (s *uiServer) root(w http.ResponseWriter, r *http.Request) {
-	if r.URL.Path == "/" {
-		http.Redirect(w, r, "/ui", http.StatusFound)
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]any{
-		"name":    "auditvision-ui",
-		"version": "0.1.0",
-		"endpoints": []string{
-			"/healthz",
-			"/events",
-			"/events/{auditID}",
-			"/summary",
-			"/ui",
-		},
-	})
+    if r.URL.Path == "/" {
+	http.Redirect(w, r, "/ui", http.StatusFound)
+	return
+    }
+    writeJSON(w, http.StatusOK, map[string]any{
+	"name":    "auditvision-ui",
+	"version": "0.1.0",
+	"endpoints": []string{
+	    "/healthz",
+	    "/events",
+	    "/events/{auditID}",
+	    "/summary",
+	    "/ui",
+	},
+    })
 }
 
 func (s *uiServer) healthz(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
-	count, err := s.db.CountEvents(ctx, model.EventFilter{})
-	if err != nil {
-		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"status": "error", "error": err.Error()})
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "totalEvents": count})
+    ctx := r.Context()
+    count, err := s.db.CountEvents(ctx, model.EventFilter{})
+    if err != nil {
+	writeJSON(w, http.StatusServiceUnavailable, map[string]any{"status": "error", "error": err.Error()})
+	return
+    }
+    writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "totalEvents": count})
+}
+
+func (s *uiServer) analyzerHealth(w http.ResponseWriter, r *http.Request) {
+    // Analyzer is alive if it scored an event in the last 10 minutes
+    var count int
+    err := s.pool.QueryRow(r.Context(),
+	`SELECT COUNT(*) FROM audit_events WHERE risk_score IS NOT NULL AND ts > NOW() - INTERVAL '10 minutes'`,
+    ).Scan(&count)
+    if err != nil || count == 0 {
+	writeJSON(w, http.StatusServiceUnavailable, map[string]any{"status": "error"})
+	return
+    }
+    writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "scored": count})
+}
+
+func (s *uiServer) alerterHealth(w http.ResponseWriter, r *http.Request) {
+    // Alerter is alive if alert_rules table is accessible
+    var count int
+    err := s.pool.QueryRow(r.Context(),
+	`SELECT COUNT(*) FROM alert_rules`,
+    ).Scan(&count)
+    if err != nil {
+	writeJSON(w, http.StatusServiceUnavailable, map[string]any{"status": "error"})
+	return
+    }
+    writeJSON(w, http.StatusOK, map[string]any{"status": "ok"})
+}
+
+func (s *uiServer) dbHealth(w http.ResponseWriter, r *http.Request) {
+    if err := s.pool.Ping(r.Context()); err != nil {
+	writeJSON(w, http.StatusServiceUnavailable, map[string]any{"status": "error"})
+	return
+    }
+    writeJSON(w, http.StatusOK, map[string]any{"status": "ok"})
 }
 
 func (s *uiServer) events(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
-	f := parseFilter(r)
-	events, err := s.db.GetEvents(ctx, f)
-	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
-		return
-	}
-	if events == nil {
-		events = []model.NormalizedEvent{}
-	}
-	writeJSON(w, http.StatusOK, map[string]any{
-		"count":  len(events),
-		"events": events,
-	})
+    ctx := r.Context()
+    f := parseFilter(r)
+    events, err := s.db.GetEvents(ctx, f)
+    if err != nil {
+	writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
+	return
+    }
+    if events == nil {
+	events = []model.NormalizedEvent{}
+    }
+    writeJSON(w, http.StatusOK, map[string]any{
+	"count":  len(events),
+	"events": events,
+    })
 }
 
 func (s *uiServer) eventByID(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
-	id := strings.TrimPrefix(r.URL.Path, "/events/")
-	if id == "" {
-		http.NotFound(w, r)
-		return
-	}
-	ev, err := s.db.GetEventByID(ctx, id)
-	if err != nil {
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "event not found"})
-		return
-	}
-	writeJSON(w, http.StatusOK, ev)
+    ctx := r.Context()
+    id := strings.TrimPrefix(r.URL.Path, "/events/")
+    if id == "" {
+	http.NotFound(w, r)
+	return
+    }
+    ev, err := s.db.GetEventByID(ctx, id)
+    if err != nil {
+	writeJSON(w, http.StatusNotFound, map[string]string{"error": "event not found"})
+	return
+    }
+    writeJSON(w, http.StatusOK, ev)
 }
 
 func (s *uiServer) summary(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
-	// JSON API mode
-	if r.URL.Query().Get("format") == "json" {
-		f := parseFilter(r)
-		sum, err := s.db.GetSummary(ctx, f)
-		if err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
-			return
-		}
-		writeJSON(w, http.StatusOK, sum)
-		return
-	}
-	// HTML dashboard
+    ctx := r.Context()
+    // JSON API mode
+    if r.URL.Query().Get("format") == "json" {
 	f := parseFilter(r)
 	sum, err := s.db.GetSummary(ctx, f)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
+	    writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
+	    return
 	}
-	sess := sessionFromContext(r.Context())
-	type summaryPage struct {
-		*model.SummaryResponse
-		Username string
-		Role     string
-	}
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	if err := summaryTmpl.Execute(w, summaryPage{sum, sess.Username, string(sess.Role)}); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-	}
+	writeJSON(w, http.StatusOK, sum)
+	return
+    }
+    // HTML dashboard
+    f := parseFilter(r)
+    sum, err := s.db.GetSummary(ctx, f)
+    if err != nil {
+	http.Error(w, err.Error(), http.StatusInternalServerError)
+	return
+    }
+    sess := sessionFromContext(r.Context())
+    type summaryPage struct {
+	*model.SummaryResponse
+	Username string
+	Role     string
+    }
+    w.Header().Set("Content-Type", "text/html; charset=utf-8")
+    if err := summaryTmpl.Execute(w, summaryPage{sum, sess.Username, string(sess.Role)}); err != nil {
+	http.Error(w, err.Error(), http.StatusInternalServerError)
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -250,128 +297,128 @@ func (s *uiServer) summary(w http.ResponseWriter, r *http.Request) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 func (s *uiServer) exportCSV(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
-	f := parseFilter(r)
-	f.Limit  = 10000
-	f.Offset = 0
+    ctx := r.Context()
+    f := parseFilter(r)
+    f.Limit  = 10000
+    f.Offset = 0
 
-	events, err := s.db.GetEvents(ctx, f)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
+    events, err := s.db.GetEvents(ctx, f)
+    if err != nil {
+	http.Error(w, err.Error(), http.StatusInternalServerError)
+	return
+    }
+
+    w.Header().Set("Content-Type", "text/csv; charset=utf-8")
+    w.Header().Set("Content-Disposition", `attachment; filename="audit-radar-export.csv"`)
+    w.Write([]byte("\xef\xbb\xbf")) // BOM for Excel UTF-8
+
+    cw := csv.NewWriter(w)
+    defer cw.Flush()
+
+    cw.Write([]string{
+	"Timestamp", "Actor", "ActorType", "Source", "SourceIP",
+	"Verb", "Resource", "Subresource", "Namespace", "Name",
+	"Result", "ActionSummary", "Changes", "RiskScore", "RiskReason",
+    })
+
+    for _, ev := range events {
+	changes := ""
+	for i, c := range ev.Changes {
+	    if i > 0 {
+		changes += "; "
+	    }
+	    if c.Old != "" {
+		changes += c.Field + ": " + c.Old + " → " + c.New
+	    } else {
+		changes += c.Field + ": " + c.New
+	    }
 	}
-
-	w.Header().Set("Content-Type", "text/csv; charset=utf-8")
-	w.Header().Set("Content-Disposition", `attachment; filename="audit-radar-export.csv"`)
-	w.Write([]byte("\xef\xbb\xbf")) // BOM for Excel UTF-8
-
-	cw := csv.NewWriter(w)
-	defer cw.Flush()
-
 	cw.Write([]string{
-		"Timestamp", "Actor", "ActorType", "Source", "SourceIP",
-		"Verb", "Resource", "Subresource", "Namespace", "Name",
-		"Result", "ActionSummary", "Changes", "RiskScore", "RiskReason",
+	    ev.Timestamp,
+	    ev.Actor,
+	    ev.ActorType,
+	    ev.Source,
+	    ev.SourceIP,
+	    ev.Verb,
+	    ev.Resource,
+	    ev.Subresource,
+	    ev.Namespace,
+	    ev.Name,
+	    strconv.Itoa(ev.Result),
+	    ev.ActionSummary,
+	    changes,
+	    ev.RiskScore,
+	    ev.RiskReason,
 	})
-
-	for _, ev := range events {
-		changes := ""
-		for i, c := range ev.Changes {
-			if i > 0 {
-				changes += "; "
-			}
-			if c.Old != "" {
-				changes += c.Field + ": " + c.Old + " → " + c.New
-			} else {
-				changes += c.Field + ": " + c.New
-			}
-		}
-		cw.Write([]string{
-			ev.Timestamp,
-			ev.Actor,
-			ev.ActorType,
-			ev.Source,
-			ev.SourceIP,
-			ev.Verb,
-			ev.Resource,
-			ev.Subresource,
-			ev.Namespace,
-			ev.Name,
-			strconv.Itoa(ev.Result),
-			ev.ActionSummary,
-			changes,
-			ev.RiskScore,
-			ev.RiskReason,
-		})
-	}
+    }
 }
 
 func (s *uiServer) stream(w http.ResponseWriter, r *http.Request) {
-	flusher, ok := w.(http.Flusher)
-	if !ok {
-		http.Error(w, "streaming not supported", http.StatusInternalServerError)
-		return
-	}
+    flusher, ok := w.(http.Flusher)
+    if !ok {
+	http.Error(w, "streaming not supported", http.StatusInternalServerError)
+	return
+    }
 
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
-	w.Header().Set("Connection", "keep-alive")
-	w.Header().Set("X-Accel-Buffering", "no")
+    w.Header().Set("Content-Type", "text/event-stream")
+    w.Header().Set("Cache-Control", "no-cache")
+    w.Header().Set("Connection", "keep-alive")
+    w.Header().Set("X-Accel-Buffering", "no")
 
-	ctx := r.Context()
+    ctx := r.Context()
 
-	// Get the latest event ID the client already has
-	lastID := r.URL.Query().Get("lastID")
+    // Get the latest event ID the client already has
+    lastID := r.URL.Query().Get("lastID")
 
-	// Poll DB every 2 seconds for new events newer than lastID
-	ticker := time.NewTicker(2 * time.Second)
-	defer ticker.Stop()
+    // Poll DB every 2 seconds for new events newer than lastID
+    ticker := time.NewTicker(2 * time.Second)
+    defer ticker.Stop()
 
-	// Send a keep-alive comment every 15s to prevent proxy timeouts
-	keepalive := time.NewTicker(15 * time.Second)
-	defer keepalive.Stop()
+    // Send a keep-alive comment every 15s to prevent proxy timeouts
+    keepalive := time.NewTicker(15 * time.Second)
+    defer keepalive.Stop()
 
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-keepalive.C:
-			fmt.Fprintf(w, ": keepalive\n\n")
-			flusher.Flush()
-		case <-ticker.C:
-			f := parseFilter(r)
-			f.Limit = 50
-			f.Offset = 0
-			events, err := s.db.GetEvents(ctx, f)
-			if err != nil || len(events) == 0 {
-				continue
-			}
+    for {
+	select {
+	case <-ctx.Done():
+	    return
+	case <-keepalive.C:
+	    fmt.Fprintf(w, ": keepalive\n\n")
+	    flusher.Flush()
+	case <-ticker.C:
+	    f := parseFilter(r)
+	    f.Limit = 50
+	    f.Offset = 0
+	    events, err := s.db.GetEvents(ctx, f)
+	    if err != nil || len(events) == 0 {
+		continue
+	    }
 
-			// Find events newer than lastID
-			var newEvents []model.NormalizedEvent
-			for _, ev := range events {
-				if ev.AuditID == lastID {
-					break
-				}
-				newEvents = append(newEvents, ev)
-			}
-			if len(newEvents) == 0 {
-				continue
-			}
-
-			// Send each new event as SSE
-			for i := len(newEvents) - 1; i >= 0; i-- {
-				ev := newEvents[i]
-				data, err := json.Marshal(ev)
-				if err != nil {
-					continue
-				}
-				fmt.Fprintf(w, "data: %s\n\n", data)
-			}
-			lastID = newEvents[0].AuditID
-			flusher.Flush()
+	    // Find events newer than lastID
+	    var newEvents []model.NormalizedEvent
+	    for _, ev := range events {
+		if ev.AuditID == lastID {
+		    break
 		}
+		newEvents = append(newEvents, ev)
+	    }
+	    if len(newEvents) == 0 {
+		continue
+	    }
+
+	    // Send each new event as SSE
+	    for i := len(newEvents) - 1; i >= 0; i-- {
+		ev := newEvents[i]
+		data, err := json.Marshal(ev)
+		if err != nil {
+		    continue
+		}
+		fmt.Fprintf(w, "data: %s\n\n", data)
+	    }
+	    lastID = newEvents[0].AuditID
+	    flusher.Flush()
 	}
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -379,102 +426,166 @@ func (s *uiServer) stream(w http.ResponseWriter, r *http.Request) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 type uiTemplateData struct {
-	Count    int
-	Total    int
-	Offset   int
-	PageSize int
-	Events   []model.NormalizedEvent
-	Query    map[string]string
-	PageNums []int
-	Username string
-	Role     string
+    Count     int
+    Total     int
+    Offset    int
+    PageSize  int
+    Events    []model.NormalizedEvent
+    Query     map[string]string
+    PageNums  []int
+    Username  string
+    Role      string
+    Namespace string
 }
 
 // buildPageNums returns page numbers to show in paginator.
 // Uses -1 as sentinel for "…" ellipsis.
 // Always shows: first, last, current ±2, with ellipsis gaps.
 func buildPageNums(current, total int) []int {
-	if total <= 1 {
-		return nil
+    if total <= 1 {
+	return nil
+    }
+    show := map[int]bool{}
+    for _, p := range []int{1, total, current - 2, current - 1, current, current + 1, current + 2} {
+	if p >= 1 && p <= total {
+	    show[p] = true
 	}
-	show := map[int]bool{}
-	for _, p := range []int{1, total, current - 2, current - 1, current, current + 1, current + 2} {
-		if p >= 1 && p <= total {
-			show[p] = true
-		}
+    }
+    sorted := make([]int, 0, len(show))
+    for p := 1; p <= total; p++ {
+	if show[p] {
+	    sorted = append(sorted, p)
 	}
-	sorted := make([]int, 0, len(show))
-	for p := 1; p <= total; p++ {
-		if show[p] {
-			sorted = append(sorted, p)
-		}
+    }
+    // Insert ellipsis gaps
+    result := []int{}
+    for i, p := range sorted {
+	if i > 0 && p-sorted[i-1] > 1 {
+	    result = append(result, -1)
 	}
-	// Insert ellipsis gaps
-	result := []int{}
-	for i, p := range sorted {
-		if i > 0 && p-sorted[i-1] > 1 {
-			result = append(result, -1)
-		}
-		result = append(result, p)
-	}
-	return result
+	result = append(result, p)
+    }
+    return result
 }
 
 func (s *uiServer) ui(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
-	f := parseFilter(r)
+    ctx := r.Context()
+    f := parseFilter(r)
 
-	// Default page size 50, allow 50/100/200
-	pageSize := f.Limit
-	if pageSize != 50 && pageSize != 100 && pageSize != 200 {
-		pageSize = 50
-	}
-	f.Limit = pageSize
+    // Default page size 50, allow 50/100/200
+    pageSize := f.Limit
+    if pageSize != 50 && pageSize != 100 && pageSize != 200 {
+	pageSize = 50
+    }
+    f.Limit = pageSize
 
-	events, err := s.db.GetEvents(ctx, f)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	if events == nil {
-		events = []model.NormalizedEvent{}
-	}
+    events, err := s.db.GetEvents(ctx, f)
+    if err != nil {
+	http.Error(w, err.Error(), http.StatusInternalServerError)
+	return
+    }
+    if events == nil {
+	events = []model.NormalizedEvent{}
+    }
 
-	total, err := s.db.CountEvents(ctx, f)
-	if err != nil {
-		total = len(events)
-	}
+    total, err := s.db.CountEvents(ctx, f)
+    if err != nil {
+	total = len(events)
+    }
 
-	q := map[string]string{}
-	for _, key := range []string{
-		"actor", "namespace", "resource", "verb", "source",
-		"actorType", "name", "result", "interestingOnly", "hideServiceAccounts", "humanOnly",
-		"from", "to", "riskScore",
-	} {
-		q[key] = r.URL.Query().Get(key)
+    q := map[string]string{}
+    for _, key := range []string{
+	"actor", "namespace", "resource", "verb", "source",
+	"actorType", "name", "result", "interestingOnly", "hideServiceAccounts", "humanOnly",
+	"from", "to", "riskScore",
+    } {
+	q[key] = r.URL.Query().Get(key)
+    }
+    // Ensure checkboxes are preserved in pagination links
+    for _, key := range []string{"interestingOnly", "hideServiceAccounts", "humanOnly"} {
+	if q[key] == "" {
+	    delete(q, key)
 	}
-	// Ensure checkboxes are preserved in pagination links
-	for _, key := range []string{"interestingOnly", "hideServiceAccounts", "humanOnly"} {
-		if q[key] == "" {
-			delete(q, key)
-		}
-	}
+    }
 
-	data := uiTemplateData{
-		Count:    len(events),
-		Total:    total,
-		Offset:   f.Offset,
-		PageSize: pageSize,
-		Events:   events,
-		Query:    q,
-		PageNums: buildPageNums(f.Offset/pageSize+1, (total+pageSize-1)/pageSize),
-		Username: sessionFromContext(r.Context()).Username,
-		Role:     string(sessionFromContext(r.Context()).Role),
-	}
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	if err := uiTmpl.Execute(w, data); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-	}
+    data := uiTemplateData{
+	Count:     len(events),
+	Total:     total,
+	Offset:    f.Offset,
+	PageSize:  pageSize,
+	Events:    events,
+	Query:     q,
+	PageNums:  buildPageNums(f.Offset/pageSize+1, (total+pageSize-1)/pageSize),
+	Username:  sessionFromContext(r.Context()).Username,
+	Role:      string(sessionFromContext(r.Context()).Role),
+	Namespace: s.namespace,
+    }
+    w.Header().Set("Content-Type", "text/html; charset=utf-8")
+    if err := uiTmpl.Execute(w, data); err != nil {
+	http.Error(w, err.Error(), http.StatusInternalServerError)
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// /logins — Login events page
+// ─────────────────────────────────────────────────────────────────────────────
+
+type loginsTemplateData struct {
+    Events   []model.AuthEvent
+    Total    int
+    Offset   int
+    PageSize int
+    PageNums []int
+    Filter   model.AuthEventFilter
+    Username string
+    Role     string
+}
+
+func (s *uiServer) logins(w http.ResponseWriter, r *http.Request) {
+    ctx := r.Context()
+    q := r.URL.Query()
+
+    f := model.AuthEventFilter{
+	Actor:     q.Get("actor"),
+	Method:    q.Get("method"),
+	EventType: q.Get("eventType"),
+	Limit:     50,
+    }
+    if q.Get("success") == "true" {
+	t := true
+	f.Success = &t
+    } else if q.Get("success") == "false" {
+	fa := false
+	f.Success = &fa
+    }
+    if off := q.Get("offset"); off != "" {
+	fmt.Sscanf(off, "%d", &f.Offset)
+    }
+
+    events, err := s.db.GetAuthEvents(ctx, f)
+    if err != nil {
+	http.Error(w, err.Error(), http.StatusInternalServerError)
+	return
+    }
+    if events == nil {
+	events = []model.AuthEvent{}
+    }
+    total, _ := s.db.CountAuthEvents(ctx, f)
+
+    data := loginsTemplateData{
+	Events:   events,
+	Total:    total,
+	Offset:   f.Offset,
+	PageSize: 50,
+	PageNums: buildPageNums(f.Offset/50+1, (total+49)/50),
+	Filter:   f,
+	Username: sessionFromContext(r.Context()).Username,
+	Role:     string(sessionFromContext(r.Context()).Role),
+    }
+    w.Header().Set("Content-Type", "text/html; charset=utf-8")
+    if err := loginsTmpl.Execute(w, data); err != nil {
+	http.Error(w, err.Error(), http.StatusInternalServerError)
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -487,36 +598,36 @@ var _ = normalize.IsNoisyResource
 
 // parseDatetime converts datetime-local format (2006-01-02T15:04) to RFC3339 UTC.
 func parseDatetime(s string) string {
-	if s == "" {
-		return ""
+    if s == "" {
+	return ""
+    }
+    var t time.Time
+    var err error
+    for _, layout := range []string{"2006-01-02T15:04:05", "2006-01-02T15:04"} {
+	t, err = time.ParseInLocation(layout, s, time.UTC)
+	if err == nil {
+	    break
 	}
-	var t time.Time
-	var err error
-	for _, layout := range []string{"2006-01-02T15:04:05", "2006-01-02T15:04"} {
-		t, err = time.ParseInLocation(layout, s, time.UTC)
-		if err == nil {
-			break
-		}
-	}
-	if err != nil {
-		return s
-	}
-	return t.UTC().Format(time.RFC3339)
+    }
+    if err != nil {
+	return s
+    }
+    return t.UTC().Format(time.RFC3339)
 }
 
 func mustEnv(key string) string {
-	v := os.Getenv(key)
-	if v == "" {
-		log.Fatalf("required env var %s is not set", key)
-	}
-	return v
+    v := os.Getenv(key)
+    if v == "" {
+	log.Fatalf("required env var %s is not set", key)
+    }
+    return v
 }
 
 func envOr(key, def string) string {
-	if v := os.Getenv(key); v != "" {
-		return v
-	}
-	return def
+    if v := os.Getenv(key); v != "" {
+	return v
+    }
+    return def
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -524,39 +635,39 @@ func envOr(key, def string) string {
 // ─────────────────────────────────────────────────────────────────────────────
 
 var uiTmpl = template.Must(template.New("ui").Funcs(template.FuncMap{
-	"add":        func(a, b int) int { return a + b },
-	"add1":       func(a int) int { return a + 1 },
-	"subPageSize": func(pageSize, offset int) int {
-		v := offset - pageSize
-		if v < 0 {
-			return 0
-		}
-		return v
-	},
-	"pageNum": func(pageSize, offset int) int {
-		if pageSize == 0 {
-			return 1
-		}
-		return offset/pageSize + 1
-	},
-	"totalPages": func(pageSize, total int) int {
-		if pageSize == 0 {
-			return 1
-		}
-		return (total + pageSize - 1) / pageSize
-	},
-	"pageOffset": func(pageSize, page int) int {
-		return (page - 1) * pageSize
-	},
-	"queryString": func(q map[string]string) template.URL {
-		vals := url.Values{}
-		for k, v := range q {
-			if v != "" {
-				vals.Set(k, v)
-			}
-		}
-		return template.URL(vals.Encode())
-	},
+    "add":        func(a, b int) int { return a + b },
+    "add1":       func(a int) int { return a + 1 },
+    "subPageSize": func(pageSize, offset int) int {
+	v := offset - pageSize
+	if v < 0 {
+	    return 0
+	}
+	return v
+    },
+    "pageNum": func(pageSize, offset int) int {
+	if pageSize == 0 {
+	    return 1
+	}
+	return offset/pageSize + 1
+    },
+    "totalPages": func(pageSize, total int) int {
+	if pageSize == 0 {
+	    return 1
+	}
+	return (total + pageSize - 1) / pageSize
+    },
+    "pageOffset": func(pageSize, page int) int {
+	return (page - 1) * pageSize
+    },
+    "queryString": func(q map[string]string) template.URL {
+	vals := url.Values{}
+	for k, v := range q {
+	    if v != "" {
+		vals.Set(k, v)
+	    }
+	}
+	return template.URL(vals.Encode())
+    },
 }).Parse(`<!DOCTYPE html>
 <html>
 <head>
@@ -617,9 +728,9 @@ var uiTmpl = template.Must(template.New("ui").Funcs(template.FuncMap{
     body.light .system td { background: rgba(0,0,0,0.02); }
     body.light .human-row td { background: rgba(37,99,235,0.03); }
     body.light th { color: #1e293b !important; background: #dde3ee !important; }
-    body.light .nav-btn { border: 2px solid #334155 !important; color: #0f172a !important; background: #e2e8f0 !important; font-weight: 600 !important; }
-    body.light .nav-btn:hover { border-color: #2563eb !important; color: #2563eb !important; background: rgba(37,99,235,0.08) !important; }
-    body.light .nav-btn.active { border: 2px solid #cc0000 !important; color: #cc0000 !important; background: rgba(204,0,0,0.1) !important; font-weight: 700 !important; }
+    body.light .nav-btn { border-color: var(--border); color: var(--text2); background: transparent; font-weight: normal; }
+    body.light .nav-btn:hover { border-color: var(--blue); color: var(--blue); background: transparent; }
+    body.light .nav-btn.active { border-color: var(--red); color: var(--red); background: rgba(204,0,0,0.06); font-weight: normal; }
     body.light .theme-btn { border: 2px solid #334155 !important; color: #0f172a !important; background: #e2e8f0 !important; font-weight: 600 !important; }
     body.light .theme-btn:hover { border-color: #0f172a !important; background: #cbd5e1 !important; }
     body.light .refresh-btn { border: 2px solid #334155 !important; color: #0f172a !important; background: #e2e8f0 !important; font-weight: 600 !important; }
@@ -1066,30 +1177,28 @@ var uiTmpl = template.Must(template.New("ui").Funcs(template.FuncMap{
     /* ── NAV ── */
     .nav-btn {
       display: inline-block;
-      padding: 6px 16px;
-      border: 1px solid var(--text2);
+      padding: 5px 12px;
+      border: 1px solid var(--border);
       border-radius: 5px;
-      color: var(--text);
+      color: var(--text2);
       text-decoration: none;
-      font-size: 11px;
+      font-size: 12px;
       font-family: var(--mono);
-      font-weight: 500;
-      letter-spacing: 0.5px;
-      transition: all 0.15s;
       background: transparent;
+      transition: border-color 0.15s, color 0.15s;
     }
-    .nav-btn:hover { border-color: var(--blue); color: var(--blue); background: rgba(59,130,246,0.08); }
-    .nav-btn.active { border-color: var(--red); color: var(--red); background: var(--red-dim); }
+    .nav-btn:hover { border-color: var(--blue); color: var(--blue); }
+    .nav-btn.active { border-color: var(--red); color: var(--red); background: rgba(229,62,62,0.08); }
     td .nav-btn { font-size: 11px; border: none; padding: 0; background: transparent; }
 
     .theme-btn {
       background: transparent;
-      border: 1px solid var(--text2);
+      border: 1px solid var(--border);
       border-radius: 5px;
-      color: var(--text);
+      color: var(--text2);
       font-family: var(--mono);
       font-size: 11px;
-      padding: 6px 12px;
+      padding: 4px 10px;
       cursor: pointer;
       transition: all 0.15s;
       letter-spacing: 0.5px;
@@ -1195,6 +1304,7 @@ var uiTmpl = template.Must(template.New("ui").Funcs(template.FuncMap{
     <nav style="display:flex;gap:4px;">
       <a href="/ui"      class="nav-btn nav-active-check" data-page="ui">Events</a>
       <a href="/summary" class="nav-btn nav-active-check" data-page="summary">Summary</a>
+      <a href="/logins"  class="nav-btn nav-active-check" data-page="logins">Logins</a>
       <a href="/settings" class="nav-btn nav-active-check" data-page="settings">Settings</a>
     </nav>
     <button class="theme-btn" id="themeBtn" onclick="toggleTheme()">☀ light</button>
@@ -1729,6 +1839,55 @@ var uiTmpl = template.Must(template.New("ui").Funcs(template.FuncMap{
     }
   });
 </script>
+
+<div id="status-bar">
+  <div class="status-left">
+    <a href="https://audit-radar.com" target="_blank" class="status-brand"><span class="status-audit">audit</span><span class="status-dot-sep">·</span><span class="status-radar">radar</span></a>
+    <span class="status-sep">·</span>
+    <a href="https://github.com/vsenatorov/auditvision" target="_blank" class="status-gh">@vsenatorov</a>
+  </div>
+  <div class="status-right">
+    <span class="status-item" id="svc-collector"><span class="status-dot loading"></span>collector</span>
+    <span class="status-item" id="svc-analyzer"><span class="status-dot loading"></span>analyzer</span>
+    <span class="status-item" id="svc-alerter"><span class="status-dot loading"></span>alerter</span>
+    <span class="status-item" id="svc-db"><span class="status-dot loading"></span>postgres</span>
+  </div>
+</div>
+<style>
+#status-bar{position:fixed;bottom:0;left:0;right:0;height:24px;background:var(--bg2);border-top:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;padding:0 16px;font-size:10px;font-family:var(--mono);color:var(--text3);z-index:100}
+.status-left,.status-right{display:flex;align-items:center;gap:8px}
+.status-brand{display:flex;align-items:center;gap:0;text-decoration:none;font-weight:700;letter-spacing:-0.02em}
+.status-audit{color:var(--red)}
+.status-dot-sep{color:rgba(255,255,255,0.15);margin:0 1px}
+.status-radar{color:var(--blue)}
+.status-sep{color:var(--border)}
+.status-gh{color:var(--text3);text-decoration:none;transition:color .15s}
+.status-gh:hover{color:var(--text2)}
+.status-item{display:flex;align-items:center;gap:4px}
+.status-dot{width:6px;height:6px;border-radius:50%;background:var(--text3);display:inline-block;transition:background .3s}
+.status-dot.ok{background:var(--green);box-shadow:0 0 4px var(--green)}
+.status-dot.err{background:var(--red);box-shadow:0 0 4px var(--red)}
+.status-dot.loading{background:var(--yellow);animation:blink 1.2s infinite}
+body{padding-bottom:24px}
+</style>
+<script>
+(function(){
+  var svcs=[
+    {id:'svc-collector',url:'/healthz'},
+    {id:'svc-analyzer',url:'/api/analyzer/health'},
+    {id:'svc-alerter',url:'/api/alerter/health'},
+    {id:'svc-db',url:'/api/db/health'}
+  ];
+  function check(){svcs.forEach(function(s){
+    var el=document.getElementById(s.id);if(!el)return;
+    var d=el.querySelector('.status-dot');
+    fetch(s.url,{signal:AbortSignal.timeout(3000)})
+      .then(function(r){d.className='status-dot '+(r.ok?'ok':'err');})
+      .catch(function(){d.className='status-dot err';});
+  });}
+  check();setInterval(check,30000);
+})();
+</script>
 </body>
 </html>
 `))
@@ -1738,81 +1897,81 @@ var uiTmpl = template.Must(template.New("ui").Funcs(template.FuncMap{
 // ─────────────────────────────────────────────────────────────────────────────
 
 var summaryTmpl = template.Must(template.New("summary").Funcs(template.FuncMap{
-	"fmtTime": func(s string) string {
-		t, err := time.Parse(time.RFC3339, s)
-		if err != nil {
-			return s
-		}
-		return t.Format("01-02 15:04:05")
-	},
-	"pct": func(part, total int) int {
-		if total == 0 {
-			return 0
-		}
-		return part * 100 / total
-	},
-	"verbColor": func(verb string) string {
-		switch verb {
-		case "delete":
-			return "#f87171"
-		case "create":
-			return "#34d399"
-		case "update", "patch":
-			return "#fbbf24"
-		case "get":
-			return "#60a5fa"
-		case "list":
-			return "#94a3b8"
-		case "watch":
-			return "#c4b5fd"
-		default:
-			return "#64748b"
-		}
-	},
-	"verbBg": func(verb string) string {
-		switch verb {
-		case "delete":
-			return "rgba(239,68,68,0.15)"
-		case "create":
-			return "rgba(52,211,153,0.15)"
-		case "update", "patch":
-			return "rgba(251,191,36,0.15)"
-		case "get":
-			return "rgba(96,165,250,0.1)"
-		case "list":
-			return "rgba(148,163,184,0.1)"
-		default:
-			return "rgba(255,255,255,0.05)"
-		}
-	},
-	"resultColor": func(result int) string {
-		if result >= 500 {
-			return "#f87171"
-		}
-		if result >= 400 {
-			return "#fbbf24"
-		}
-		return "#34d399"
-	},
-	"maxVal": func(m map[string]int) int {
-		max := 0
-		for _, v := range m {
-			if v > max {
-				max = v
-			}
-		}
-		return max
-	},
-	"barWidth": func(val, max int) int {
-		if max == 0 {
-			return 0
-		}
-		w := val * 100 / max
-		if w < 1 {
-			return 1
-		}
-		return w
-	},
+    "fmtTime": func(s string) string {
+	t, err := time.Parse(time.RFC3339, s)
+	if err != nil {
+	    return s
+	}
+	return t.Format("01-02 15:04:05")
+    },
+    "pct": func(part, total int) int {
+	if total == 0 {
+	    return 0
+	}
+	return part * 100 / total
+    },
+    "verbColor": func(verb string) string {
+	switch verb {
+	case "delete":
+	    return "#f87171"
+	case "create":
+	    return "#34d399"
+	case "update", "patch":
+	    return "#fbbf24"
+	case "get":
+	    return "#60a5fa"
+	case "list":
+	    return "#94a3b8"
+	case "watch":
+	    return "#c4b5fd"
+	default:
+	    return "#64748b"
+	}
+    },
+    "verbBg": func(verb string) string {
+	switch verb {
+	case "delete":
+	    return "rgba(239,68,68,0.15)"
+	case "create":
+	    return "rgba(52,211,153,0.15)"
+	case "update", "patch":
+	    return "rgba(251,191,36,0.15)"
+	case "get":
+	    return "rgba(96,165,250,0.1)"
+	case "list":
+	    return "rgba(148,163,184,0.1)"
+	default:
+	    return "rgba(255,255,255,0.05)"
+	}
+    },
+    "resultColor": func(result int) string {
+	if result >= 500 {
+	    return "#f87171"
+	}
+	if result >= 400 {
+	    return "#fbbf24"
+	}
+	return "#34d399"
+    },
+    "maxVal": func(m map[string]int) int {
+	max := 0
+	for _, v := range m {
+	    if v > max {
+		max = v
+	    }
+	}
+	return max
+    },
+    "barWidth": func(val, max int) int {
+	if max == 0 {
+	    return 0
+	}
+	w := val * 100 / max
+	if w < 1 {
+	    return 1
+	}
+	return w
+    },
 }).Parse(`<!DOCTYPE html>
 <html>
 <head>
@@ -1837,9 +1996,9 @@ var summaryTmpl = template.Must(template.New("summary").Funcs(template.FuncMap{
     .sub{font-size:9px;font-family:var(--mono);color:var(--text3);margin-top:5px;letter-spacing:2px;text-transform:uppercase;}
     .live-dot{width:6px;height:6px;background:var(--red);border-radius:50%;display:inline-block;animation:blink 1.4s infinite;margin-right:6px;vertical-align:middle;box-shadow:0 0 6px var(--red);}
     @keyframes blink{0%,100%{opacity:1}50%{opacity:0.2}}
-    .nav-btn{display:inline-block;padding:6px 16px;border:1px solid var(--text2);border-radius:5px;color:var(--text);text-decoration:none;font-size:11px;font-family:var(--mono);font-weight:500;letter-spacing:0.5px;transition:all 0.15s;background:transparent;}
-    .nav-btn:hover{border-color:var(--blue);color:var(--blue);background:rgba(59,130,246,0.08);}
-    .nav-btn.active{border-color:var(--red);color:var(--red);background:var(--red-dim);}
+    .nav-btn{display:inline-block;padding:5px 12px;border:1px solid var(--border);border-radius:5px;color:var(--text2);text-decoration:none;font-size:12px;font-family:var(--mono);background:transparent;transition:border-color 0.15s,color 0.15s;}
+    .nav-btn:hover{border-color:var(--blue);color:var(--blue);}
+    .nav-btn.active{border-color:var(--red);color:var(--red);background:rgba(229,62,62,0.08);}
     .theme-btn{background:transparent;border:1px solid var(--text3);border-radius:5px;color:var(--text2);font-family:var(--mono);font-size:11px;padding:6px 12px;cursor:pointer;transition:all 0.15s;}
     .refresh-btn{background:transparent;border:1px solid var(--text3);color:var(--text2);padding:6px 16px;border-radius:5px;cursor:pointer;font-size:11px;font-family:var(--mono);white-space:nowrap;flex-shrink:0;transition:all 0.2s;}
     .page-content{position:relative;z-index:1;padding:28px;}
@@ -1902,8 +2061,8 @@ var summaryTmpl = template.Must(template.New("summary").Funcs(template.FuncMap{
     .risk-stat-label{font-size:9px;text-transform:uppercase;letter-spacing:0.1em;color:var(--text3);margin-top:4px;}
     .bottom-panels{display:grid;grid-template-columns:1fr 1fr;gap:20px;align-items:start;}
     @media(max-width:900px){.bottom-panels{grid-template-columns:1fr;}}
-    body.light .nav-btn{border:2px solid #334155 !important;color:#0f172a !important;background:#e2e8f0 !important;font-weight:600 !important;}
-    body.light .nav-btn.active{border:2px solid #cc0000 !important;color:#cc0000 !important;background:rgba(204,0,0,0.1) !important;}
+    body.light .nav-btn{border-color:var(--border);color:var(--text2);background:transparent;}
+    body.light .nav-btn.active{border-color:var(--red);color:var(--red);background:rgba(204,0,0,0.06);}
     body.light .theme-btn{border:2px solid #334155 !important;color:#0f172a !important;background:#e2e8f0 !important;}
   </style>
 </head>
@@ -1931,6 +2090,7 @@ var summaryTmpl = template.Must(template.New("summary").Funcs(template.FuncMap{
     <nav style="display:flex;gap:4px;">
       <a href="/ui"      class="nav-btn nav-active-check" data-page="ui">Events</a>
       <a href="/summary" class="nav-btn nav-active-check" data-page="summary">Summary</a>
+      <a href="/logins"  class="nav-btn nav-active-check" data-page="logins">Logins</a>
       <a href="/settings" class="nav-btn nav-active-check" data-page="settings">Settings</a>
     </nav>
     <button class="theme-btn" id="themeBtn" onclick="toggleTheme()">☀ light</button>
@@ -2105,88 +2265,88 @@ var summaryTmpl = template.Must(template.New("summary").Funcs(template.FuncMap{
 // ─────────────────────────────────────────────────────────────────────────────
 
 type alertConfig struct {
-	SlackWebhook       string
-	SMTPHost           string
-	SMTPPort           string
-	SMTPUser           string
-	EmailFrom          string
-	EmailTo            string
-	AlertOnHigh        string
-	AlertOnHumanDelete string
-	PollInterval       string
+    SlackWebhook       string
+    SMTPHost           string
+    SMTPPort           string
+    SMTPUser           string
+    EmailFrom          string
+    EmailTo            string
+    AlertOnHigh        string
+    AlertOnHumanDelete string
+    PollInterval       string
 }
 
 const (
-	k8sAPI    = "https://kubernetes.default.svc"
-	cmName    = "audit-alerter-config"
-	cmNS      = "audit-vision"
-	tokenFile = "/var/run/secrets/kubernetes.io/serviceaccount/token"
-	caFile    = "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
+    k8sAPI    = "https://kubernetes.default.svc"
+    cmName    = "audit-alerter-config"
+    cmNS      = "audit-vision"
+    tokenFile = "/var/run/secrets/kubernetes.io/serviceaccount/token"
+    caFile    = "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
 )
 
 func k8sToken() string {
-	b, err := os.ReadFile(tokenFile)
-	if err != nil {
-		return ""
-	}
-	return strings.TrimSpace(string(b))
+    b, err := os.ReadFile(tokenFile)
+    if err != nil {
+	return ""
+    }
+    return strings.TrimSpace(string(b))
 }
 
 func k8sClient() *http.Client {
-	pool, err := x509.SystemCertPool()
-	if err != nil || pool == nil {
-		pool = x509.NewCertPool()
-	}
-	if ca, err := os.ReadFile(caFile); err == nil {
-		pool.AppendCertsFromPEM(ca)
-	}
-	return &http.Client{
-		Timeout: 5 * time.Second,
-		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{RootCAs: pool},
-		},
-	}
+    pool, err := x509.SystemCertPool()
+    if err != nil || pool == nil {
+	pool = x509.NewCertPool()
+    }
+    if ca, err := os.ReadFile(caFile); err == nil {
+	pool.AppendCertsFromPEM(ca)
+    }
+    return &http.Client{
+	Timeout: 5 * time.Second,
+	Transport: &http.Transport{
+	    TLSClientConfig: &tls.Config{RootCAs: pool},
+	},
+    }
 }
 
 func getConfigMap() (map[string]string, error) {
-	u := fmt.Sprintf("%s/api/v1/namespaces/%s/configmaps/%s", k8sAPI, cmNS, cmName)
-	req, _ := http.NewRequest("GET", u, nil)
-	req.Header.Set("Authorization", "Bearer "+k8sToken())
-	resp, err := k8sClient().Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	body, _ := io.ReadAll(resp.Body)
-	var cm struct {
-		Data map[string]string `json:"data"`
-	}
-	if err := json.Unmarshal(body, &cm); err != nil {
-		return nil, fmt.Errorf("parse error: %v (body: %s)", err, string(body))
-	}
-	if cm.Data == nil {
-		cm.Data = map[string]string{}
-	}
-	return cm.Data, nil
+    u := fmt.Sprintf("%s/api/v1/namespaces/%s/configmaps/%s", k8sAPI, cmNS, cmName)
+    req, _ := http.NewRequest("GET", u, nil)
+    req.Header.Set("Authorization", "Bearer "+k8sToken())
+    resp, err := k8sClient().Do(req)
+    if err != nil {
+	return nil, err
+    }
+    defer resp.Body.Close()
+    body, _ := io.ReadAll(resp.Body)
+    var cm struct {
+	Data map[string]string `json:"data"`
+    }
+    if err := json.Unmarshal(body, &cm); err != nil {
+	return nil, fmt.Errorf("parse error: %v (body: %s)", err, string(body))
+    }
+    if cm.Data == nil {
+	cm.Data = map[string]string{}
+    }
+    return cm.Data, nil
 }
 
 func patchConfigMap(data map[string]string) error {
-	u := fmt.Sprintf("%s/api/v1/namespaces/%s/configmaps/%s", k8sAPI, cmNS, cmName)
-	payload := map[string]interface{}{"data": data}
-	body, _ := json.Marshal(payload)
-	req, _ := http.NewRequest("PATCH", u, bytes.NewReader(body))
-	req.Header.Set("Authorization", "Bearer "+k8sToken())
-	req.Header.Set("Content-Type", "application/merge-patch+json")
-	resp, err := k8sClient().Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode >= 300 {
-		b, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("k8s returned %d: %s", resp.StatusCode, string(b))
-	}
-	return nil
+    u := fmt.Sprintf("%s/api/v1/namespaces/%s/configmaps/%s", k8sAPI, cmNS, cmName)
+    payload := map[string]interface{}{"data": data}
+    body, _ := json.Marshal(payload)
+    req, _ := http.NewRequest("PATCH", u, bytes.NewReader(body))
+    req.Header.Set("Authorization", "Bearer "+k8sToken())
+    req.Header.Set("Content-Type", "application/merge-patch+json")
+    resp, err := k8sClient().Do(req)
+    if err != nil {
+	return err
+    }
+    defer resp.Body.Close()
+    if resp.StatusCode >= 300 {
+	b, _ := io.ReadAll(resp.Body)
+	return fmt.Errorf("k8s returned %d: %s", resp.StatusCode, string(b))
+    }
+    return nil
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -2194,141 +2354,141 @@ func patchConfigMap(data map[string]string) error {
 // ─────────────────────────────────────────────────────────────────────────────
 
 type ruleConditions struct {
-	Namespace string `json:"namespace"`
-	Verb      string `json:"verb"`
-	Actor     string `json:"actor"`
-	ActorType string `json:"actor_type"`
-	Resource  string `json:"resource"`
-	Risk      string `json:"risk"`
-	ResultMin int    `json:"result_min"`
-	ResultMax int    `json:"result_max"`
+    Namespace string `json:"namespace"`
+    Verb      string `json:"verb"`
+    Actor     string `json:"actor"`
+    ActorType string `json:"actor_type"`
+    Resource  string `json:"resource"`
+    Risk      string `json:"risk"`
+    ResultMin int    `json:"result_min"`
+    ResultMax int    `json:"result_max"`
 }
 
 type alertRule struct {
-	ID           int64          `json:"id"`
-	Name         string         `json:"name"`
-	Enabled      bool           `json:"enabled"`
-	Conditions   ruleConditions `json:"conditions"`
-	Destinations []string       `json:"destinations"`
-	CreatedAt    string         `json:"created_at"`
+    ID           int64          `json:"id"`
+    Name         string         `json:"name"`
+    Enabled      bool           `json:"enabled"`
+    Conditions   ruleConditions `json:"conditions"`
+    Destinations []string       `json:"destinations"`
+    CreatedAt    string         `json:"created_at"`
 }
 
 func (s *uiServer) loadRules(ctx context.Context) ([]alertRule, error) {
-	rows, err := s.pool.Query(ctx, `
-		SELECT id, name, enabled, conditions, destinations, created_at
-		FROM alert_rules ORDER BY id
-	`)
-	if err != nil {
-		return nil, err
+    rows, err := s.pool.Query(ctx, `
+	SELECT id, name, enabled, conditions, destinations, created_at
+	FROM alert_rules ORDER BY id
+    `)
+    if err != nil {
+	return nil, err
+    }
+    defer rows.Close()
+    var rules []alertRule
+    for rows.Next() {
+	var r alertRule
+	var condJSON []byte
+	var createdAt time.Time
+	if err := rows.Scan(&r.ID, &r.Name, &r.Enabled, &condJSON, &r.Destinations, &createdAt); err != nil {
+	    continue
 	}
-	defer rows.Close()
-	var rules []alertRule
-	for rows.Next() {
-		var r alertRule
-		var condJSON []byte
-		var createdAt time.Time
-		if err := rows.Scan(&r.ID, &r.Name, &r.Enabled, &condJSON, &r.Destinations, &createdAt); err != nil {
-			continue
-		}
-		json.Unmarshal(condJSON, &r.Conditions)
-		r.CreatedAt = createdAt.Format("2006-01-02 15:04")
-		rules = append(rules, r)
-	}
-	return rules, nil
+	json.Unmarshal(condJSON, &r.Conditions)
+	r.CreatedAt = createdAt.Format("2006-01-02 15:04")
+	rules = append(rules, r)
+    }
+    return rules, nil
 }
 
 // rulesAPI handles GET /settings/rules (list) and POST /settings/rules (create)
 func (s *uiServer) rulesAPI(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	ctx := r.Context()
+    w.Header().Set("Content-Type", "application/json")
+    ctx := r.Context()
 
-	switch r.Method {
-	case http.MethodGet:
-		rules, err := s.loadRules(ctx)
-		if err != nil {
-			http.Error(w, `{"error":"`+err.Error()+`"}`, 500)
-			return
-		}
-		if rules == nil {
-			rules = []alertRule{}
-		}
-		json.NewEncoder(w).Encode(rules)
-
-	case http.MethodPost:
-		var rule alertRule
-		if err := json.NewDecoder(r.Body).Decode(&rule); err != nil {
-			http.Error(w, `{"error":"invalid JSON"}`, 400)
-			return
-		}
-		if rule.Name == "" {
-			http.Error(w, `{"error":"name required"}`, 400)
-			return
-		}
-		if len(rule.Destinations) == 0 {
-			rule.Destinations = []string{"email"}
-		}
-		condJSON, _ := json.Marshal(rule.Conditions)
-		var id int64
-		err := s.pool.QueryRow(ctx, `
-			INSERT INTO alert_rules (name, enabled, conditions, destinations)
-			VALUES ($1, $2, $3, $4) RETURNING id
-		`, rule.Name, rule.Enabled, condJSON, rule.Destinations).Scan(&id)
-		if err != nil {
-			http.Error(w, `{"error":"`+err.Error()+`"}`, 500)
-			return
-		}
-		rule.ID = id
-		w.WriteHeader(http.StatusCreated)
-		json.NewEncoder(w).Encode(rule)
-
-	default:
-		http.Error(w, `{"error":"method not allowed"}`, 405)
+    switch r.Method {
+    case http.MethodGet:
+	rules, err := s.loadRules(ctx)
+	if err != nil {
+	    http.Error(w, `{"error":"`+err.Error()+`"}`, 500)
+	    return
 	}
+	if rules == nil {
+	    rules = []alertRule{}
+	}
+	json.NewEncoder(w).Encode(rules)
+
+    case http.MethodPost:
+	var rule alertRule
+	if err := json.NewDecoder(r.Body).Decode(&rule); err != nil {
+	    http.Error(w, `{"error":"invalid JSON"}`, 400)
+	    return
+	}
+	if rule.Name == "" {
+	    http.Error(w, `{"error":"name required"}`, 400)
+	    return
+	}
+	if len(rule.Destinations) == 0 {
+	    rule.Destinations = []string{"email"}
+	}
+	condJSON, _ := json.Marshal(rule.Conditions)
+	var id int64
+	err := s.pool.QueryRow(ctx, `
+	    INSERT INTO alert_rules (name, enabled, conditions, destinations)
+	    VALUES ($1, $2, $3, $4) RETURNING id
+	`, rule.Name, rule.Enabled, condJSON, rule.Destinations).Scan(&id)
+	if err != nil {
+	    http.Error(w, `{"error":"`+err.Error()+`"}`, 500)
+	    return
+	}
+	rule.ID = id
+	w.WriteHeader(http.StatusCreated)
+	json.NewEncoder(w).Encode(rule)
+
+    default:
+	http.Error(w, `{"error":"method not allowed"}`, 405)
+    }
 }
 
 // rulesAPIItem handles PATCH /settings/rules/{id} (toggle) and DELETE /settings/rules/{id}
 func (s *uiServer) rulesAPIItem(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	ctx := r.Context()
+    w.Header().Set("Content-Type", "application/json")
+    ctx := r.Context()
 
-	idStr := strings.TrimPrefix(r.URL.Path, "/settings/rules/")
-	id, err := strconv.ParseInt(idStr, 10, 64)
+    idStr := strings.TrimPrefix(r.URL.Path, "/settings/rules/")
+    id, err := strconv.ParseInt(idStr, 10, 64)
+    if err != nil {
+	http.Error(w, `{"error":"invalid id"}`, 400)
+	return
+    }
+
+    switch r.Method {
+    case http.MethodPatch:
+	var body struct {
+	    Enabled *bool `json:"enabled"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	    http.Error(w, `{"error":"invalid JSON"}`, 400)
+	    return
+	}
+	if body.Enabled == nil {
+	    http.Error(w, `{"error":"enabled field required"}`, 400)
+	    return
+	}
+	_, err := s.pool.Exec(ctx, `UPDATE alert_rules SET enabled=$1 WHERE id=$2`, *body.Enabled, id)
 	if err != nil {
-		http.Error(w, `{"error":"invalid id"}`, 400)
-		return
+	    http.Error(w, `{"error":"`+err.Error()+`"}`, 500)
+	    return
 	}
+	json.NewEncoder(w).Encode(map[string]interface{}{"id": id, "enabled": *body.Enabled})
 
-	switch r.Method {
-	case http.MethodPatch:
-		var body struct {
-			Enabled *bool `json:"enabled"`
-		}
-		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-			http.Error(w, `{"error":"invalid JSON"}`, 400)
-			return
-		}
-		if body.Enabled == nil {
-			http.Error(w, `{"error":"enabled field required"}`, 400)
-			return
-		}
-		_, err := s.pool.Exec(ctx, `UPDATE alert_rules SET enabled=$1 WHERE id=$2`, *body.Enabled, id)
-		if err != nil {
-			http.Error(w, `{"error":"`+err.Error()+`"}`, 500)
-			return
-		}
-		json.NewEncoder(w).Encode(map[string]interface{}{"id": id, "enabled": *body.Enabled})
-
-	case http.MethodDelete:
-		_, err := s.pool.Exec(ctx, `DELETE FROM alert_rules WHERE id=$1`, id)
-		if err != nil {
-			http.Error(w, `{"error":"`+err.Error()+`"}`, 500)
-			return
-		}
-		json.NewEncoder(w).Encode(map[string]bool{"deleted": true})
-
-	default:
-		http.Error(w, `{"error":"method not allowed"}`, 405)
+    case http.MethodDelete:
+	_, err := s.pool.Exec(ctx, `DELETE FROM alert_rules WHERE id=$1`, id)
+	if err != nil {
+	    http.Error(w, `{"error":"`+err.Error()+`"}`, 500)
+	    return
 	}
+	json.NewEncoder(w).Encode(map[string]bool{"deleted": true})
+
+    default:
+	http.Error(w, `{"error":"method not allowed"}`, 405)
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -2336,145 +2496,145 @@ func (s *uiServer) rulesAPIItem(w http.ResponseWriter, r *http.Request) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 func (s *uiServer) exclusionsAPI(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	ctx := r.Context()
+    w.Header().Set("Content-Type", "application/json")
+    ctx := r.Context()
 
-	switch r.Method {
-	case http.MethodGet:
-		rules, err := s.db.GetExclusionRules(ctx)
-		if err != nil {
-			http.Error(w, `{"error":"`+err.Error()+`"}`, 500)
-			return
-		}
-		json.NewEncoder(w).Encode(rules)
-
-	case http.MethodPost:
-		var rule model.ExclusionRule
-		if err := json.NewDecoder(r.Body).Decode(&rule); err != nil {
-			http.Error(w, `{"error":"invalid JSON"}`, 400)
-			return
-		}
-		if rule.Name == "" {
-			http.Error(w, `{"error":"name required"}`, 400)
-			return
-		}
-		rule.Enabled = true
-		created, err := s.db.InsertExclusionRule(ctx, rule)
-		if err != nil {
-			http.Error(w, `{"error":"`+err.Error()+`"}`, 500)
-			return
-		}
-		w.WriteHeader(http.StatusCreated)
-		json.NewEncoder(w).Encode(created)
-
-	default:
-		http.Error(w, `{"error":"method not allowed"}`, 405)
+    switch r.Method {
+    case http.MethodGet:
+	rules, err := s.db.GetExclusionRules(ctx)
+	if err != nil {
+	    http.Error(w, `{"error":"`+err.Error()+`"}`, 500)
+	    return
 	}
+	json.NewEncoder(w).Encode(rules)
+
+    case http.MethodPost:
+	var rule model.ExclusionRule
+	if err := json.NewDecoder(r.Body).Decode(&rule); err != nil {
+	    http.Error(w, `{"error":"invalid JSON"}`, 400)
+	    return
+	}
+	if rule.Name == "" {
+	    http.Error(w, `{"error":"name required"}`, 400)
+	    return
+	}
+	rule.Enabled = true
+	created, err := s.db.InsertExclusionRule(ctx, rule)
+	if err != nil {
+	    http.Error(w, `{"error":"`+err.Error()+`"}`, 500)
+	    return
+	}
+	w.WriteHeader(http.StatusCreated)
+	json.NewEncoder(w).Encode(created)
+
+    default:
+	http.Error(w, `{"error":"method not allowed"}`, 405)
+    }
 }
 
 // exclusionsAPIItem handles PATCH /settings/exclusions/{id} and DELETE /settings/exclusions/{id}
 func (s *uiServer) exclusionsAPIItem(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	ctx := r.Context()
+    w.Header().Set("Content-Type", "application/json")
+    ctx := r.Context()
 
-	idStr := strings.TrimPrefix(r.URL.Path, "/settings/exclusions/")
-	id, err := strconv.ParseInt(idStr, 10, 64)
-	if err != nil {
-		http.Error(w, `{"error":"invalid id"}`, 400)
-		return
+    idStr := strings.TrimPrefix(r.URL.Path, "/settings/exclusions/")
+    id, err := strconv.ParseInt(idStr, 10, 64)
+    if err != nil {
+	http.Error(w, `{"error":"invalid id"}`, 400)
+	return
+    }
+
+    switch r.Method {
+    case http.MethodPatch:
+	var rule model.ExclusionRule
+	if err := json.NewDecoder(r.Body).Decode(&rule); err != nil {
+	    http.Error(w, `{"error":"invalid JSON"}`, 400)
+	    return
 	}
-
-	switch r.Method {
-	case http.MethodPatch:
-		var rule model.ExclusionRule
-		if err := json.NewDecoder(r.Body).Decode(&rule); err != nil {
-			http.Error(w, `{"error":"invalid JSON"}`, 400)
-			return
-		}
-		rule.ID = id
-		if err := s.db.UpdateExclusionRule(ctx, rule); err != nil {
-			http.Error(w, `{"error":"`+err.Error()+`"}`, 500)
-			return
-		}
-		json.NewEncoder(w).Encode(map[string]interface{}{"id": id, "ok": true})
-
-	case http.MethodDelete:
-		if err := s.db.DeleteExclusionRule(ctx, id); err != nil {
-			http.Error(w, `{"error":"`+err.Error()+`"}`, 500)
-			return
-		}
-		json.NewEncoder(w).Encode(map[string]bool{"deleted": true})
-
-	default:
-		http.Error(w, `{"error":"method not allowed"}`, 405)
+	rule.ID = id
+	if err := s.db.UpdateExclusionRule(ctx, rule); err != nil {
+	    http.Error(w, `{"error":"`+err.Error()+`"}`, 500)
+	    return
 	}
+	json.NewEncoder(w).Encode(map[string]interface{}{"id": id, "ok": true})
+
+    case http.MethodDelete:
+	if err := s.db.DeleteExclusionRule(ctx, id); err != nil {
+	    http.Error(w, `{"error":"`+err.Error()+`"}`, 500)
+	    return
+	}
+	json.NewEncoder(w).Encode(map[string]bool{"deleted": true})
+
+    default:
+	http.Error(w, `{"error":"method not allowed"}`, 405)
+    }
 }
 
 func (s *uiServer) settings(w http.ResponseWriter, r *http.Request) {
-	type PageData struct {
-		Cfg      alertConfig
-		Success  string
-		Error    string
-		Username string
-		Role     string
+    type PageData struct {
+	Cfg      alertConfig
+	Success  string
+	Error    string
+	Username string
+	Role     string
+    }
+    pd := PageData{}
+    sess := sessionFromContext(r.Context())
+    pd.Username = sess.Username
+    pd.Role = string(sess.Role)
+    if r.Method == http.MethodPost {
+	if err := r.ParseForm(); err == nil {
+	    data := map[string]string{
+		"ALERT_SLACK_WEBHOOK":   r.FormValue("slack_webhook"),
+		"ALERT_SMTP_HOST":       r.FormValue("smtp_host"),
+		"ALERT_SMTP_PORT":       r.FormValue("smtp_port"),
+		"ALERT_SMTP_USER":       r.FormValue("smtp_user"),
+		"ALERT_EMAIL_FROM":      r.FormValue("email_from"),
+		"ALERT_EMAIL_TO":        r.FormValue("email_to"),
+		"ALERT_POLL_INTERVAL":   r.FormValue("poll_interval"),
+	    }
+	    if r.FormValue("alert_on_high") == "" {
+		data["ALERT_ON_HIGH"] = "false"
+	    } else {
+		data["ALERT_ON_HIGH"] = "true"
+	    }
+	    if r.FormValue("alert_on_human_delete") == "" {
+		data["ALERT_ON_HUMAN_DELETE"] = "false"
+	    } else {
+		data["ALERT_ON_HUMAN_DELETE"] = "true"
+	    }
+	    if pass := r.FormValue("smtp_pass"); pass != "" {
+		data["ALERT_SMTP_PASS"] = pass
+	    }
+	    if err := patchConfigMap(data); err != nil {
+		pd.Error = "Failed to save: " + err.Error()
+		log.Printf("settings patch error: %v", err)
+	    } else {
+		pd.Success = "Settings saved! alerter will apply changes within 60s."
+	    }
 	}
-	pd := PageData{}
-	sess := sessionFromContext(r.Context())
-	pd.Username = sess.Username
-	pd.Role = string(sess.Role)
-	if r.Method == http.MethodPost {
-		if err := r.ParseForm(); err == nil {
-			data := map[string]string{
-				"ALERT_SLACK_WEBHOOK":   r.FormValue("slack_webhook"),
-				"ALERT_SMTP_HOST":       r.FormValue("smtp_host"),
-				"ALERT_SMTP_PORT":       r.FormValue("smtp_port"),
-				"ALERT_SMTP_USER":       r.FormValue("smtp_user"),
-				"ALERT_EMAIL_FROM":      r.FormValue("email_from"),
-				"ALERT_EMAIL_TO":        r.FormValue("email_to"),
-				"ALERT_POLL_INTERVAL":   r.FormValue("poll_interval"),
-			}
-			if r.FormValue("alert_on_high") == "" {
-				data["ALERT_ON_HIGH"] = "false"
-			} else {
-				data["ALERT_ON_HIGH"] = "true"
-			}
-			if r.FormValue("alert_on_human_delete") == "" {
-				data["ALERT_ON_HUMAN_DELETE"] = "false"
-			} else {
-				data["ALERT_ON_HUMAN_DELETE"] = "true"
-			}
-			if pass := r.FormValue("smtp_pass"); pass != "" {
-				data["ALERT_SMTP_PASS"] = pass
-			}
-			if err := patchConfigMap(data); err != nil {
-				pd.Error = "Failed to save: " + err.Error()
-				log.Printf("settings patch error: %v", err)
-			} else {
-				pd.Success = "Settings saved! alerter will apply changes within 60s."
-			}
-		}
+    }
+    if cm, err := getConfigMap(); err == nil {
+	pd.Cfg = alertConfig{
+	    SlackWebhook:       cm["ALERT_SLACK_WEBHOOK"],
+	    SMTPHost:           cm["ALERT_SMTP_HOST"],
+	    SMTPPort:           cm["ALERT_SMTP_PORT"],
+	    SMTPUser:           cm["ALERT_SMTP_USER"],
+	    EmailFrom:          cm["ALERT_EMAIL_FROM"],
+	    EmailTo:            cm["ALERT_EMAIL_TO"],
+	    AlertOnHigh:        cm["ALERT_ON_HIGH"],
+	    AlertOnHumanDelete: cm["ALERT_ON_HUMAN_DELETE"],
+	    PollInterval:       cm["ALERT_POLL_INTERVAL"],
 	}
-	if cm, err := getConfigMap(); err == nil {
-		pd.Cfg = alertConfig{
-			SlackWebhook:       cm["ALERT_SLACK_WEBHOOK"],
-			SMTPHost:           cm["ALERT_SMTP_HOST"],
-			SMTPPort:           cm["ALERT_SMTP_PORT"],
-			SMTPUser:           cm["ALERT_SMTP_USER"],
-			EmailFrom:          cm["ALERT_EMAIL_FROM"],
-			EmailTo:            cm["ALERT_EMAIL_TO"],
-			AlertOnHigh:        cm["ALERT_ON_HIGH"],
-			AlertOnHumanDelete: cm["ALERT_ON_HUMAN_DELETE"],
-			PollInterval:       cm["ALERT_POLL_INTERVAL"],
-		}
-	} else {
-		pd.Error = "Cannot read ConfigMap: " + err.Error() + " (check RBAC permissions)"
-	}
-	if pd.Cfg.SMTPPort == "" { pd.Cfg.SMTPPort = "587" }
-	if pd.Cfg.PollInterval == "" { pd.Cfg.PollInterval = "30s" }
-	if pd.Cfg.AlertOnHigh == "" { pd.Cfg.AlertOnHigh = "true" }
-	if pd.Cfg.AlertOnHumanDelete == "" { pd.Cfg.AlertOnHumanDelete = "true" }
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	settingsTmpl.Execute(w, pd)
+    } else {
+	pd.Error = "Cannot read ConfigMap: " + err.Error() + " (check RBAC permissions)"
+    }
+    if pd.Cfg.SMTPPort == "" { pd.Cfg.SMTPPort = "587" }
+    if pd.Cfg.PollInterval == "" { pd.Cfg.PollInterval = "30s" }
+    if pd.Cfg.AlertOnHigh == "" { pd.Cfg.AlertOnHigh = "true" }
+    if pd.Cfg.AlertOnHumanDelete == "" { pd.Cfg.AlertOnHumanDelete = "true" }
+    w.Header().Set("Content-Type", "text/html; charset=utf-8")
+    settingsTmpl.Execute(w, pd)
 }
 
 var settingsTmpl = template.Must(template.New("settings").Parse(`<!DOCTYPE html>
@@ -2498,14 +2658,14 @@ var settingsTmpl = template.Must(template.New("settings").Parse(`<!DOCTYPE html>
   .sub{font-size:9px;font-family:var(--mono);color:var(--text3);margin-top:5px;letter-spacing:2px;text-transform:uppercase;}
   .live-dot{width:6px;height:6px;background:var(--red);border-radius:50%;display:inline-block;animation:blink 1.4s infinite;margin-right:6px;vertical-align:middle;box-shadow:0 0 6px var(--red);}
   @keyframes blink{0%,100%{opacity:1}50%{opacity:0.2}}
-  .nav-btn{display:inline-block;padding:6px 16px;border:1px solid var(--text2);border-radius:5px;color:var(--text1);text-decoration:none;font-size:11px;font-family:var(--mono);font-weight:500;letter-spacing:0.5px;transition:all 0.15s;background:transparent;}
-  .nav-btn:hover{border-color:var(--blue);color:var(--blue);background:rgba(59,130,246,0.08);}
-  .nav-btn.active{border-color:var(--red);color:var(--red);background:rgba(238,0,0,0.15);font-weight:700;}
+  .nav-btn{display:inline-block;padding:5px 12px;border:1px solid var(--border);border-radius:5px;color:var(--text2);text-decoration:none;font-size:12px;font-family:var(--mono);background:transparent;transition:border-color 0.15s,color 0.15s;}
+  .nav-btn:hover{border-color:var(--blue);color:var(--blue);}
+  .nav-btn.active{border-color:var(--red);color:var(--red);background:rgba(229,62,62,0.08);}
   .theme-btn{background:transparent;border:1px solid var(--text2);border-radius:5px;color:var(--text1);font-family:var(--mono);font-size:11px;padding:6px 12px;cursor:pointer;transition:all 0.15s;}
   .refresh-btn{background:transparent;border:1px solid var(--text3);color:var(--text2);padding:6px 16px;border-radius:5px;cursor:pointer;font-size:11px;font-family:var(--mono);white-space:nowrap;flex-shrink:0;transition:all 0.2s;}
-  body.light .nav-btn{border:2px solid #334155 !important;color:#0f172a !important;background:#e2e8f0 !important;font-weight:600 !important;}
-  body.light .nav-btn:hover{border-color:#2563eb !important;color:#2563eb !important;background:rgba(37,99,235,0.08) !important;}
-  body.light .nav-btn.active{border:2px solid #cc0000 !important;color:#cc0000 !important;background:rgba(204,0,0,0.1) !important;font-weight:700 !important;}
+  body.light .nav-btn{border-color:var(--border);color:var(--text2);background:transparent;}
+  body.light .nav-btn:hover{border-color:var(--blue);color:var(--blue);}
+  body.light .nav-btn.active{border-color:var(--red);color:var(--red);background:rgba(204,0,0,0.06);}
   body.light .theme-btn{border:2px solid #334155 !important;color:#0f172a !important;background:#e2e8f0 !important;font-weight:600 !important;}
   body.light .refresh-btn{border:2px solid #334155 !important;color:#0f172a !important;background:#e2e8f0 !important;}
   .page{max-width:680px;margin:40px auto;padding:0 24px;}
@@ -2600,6 +2760,7 @@ var settingsTmpl = template.Must(template.New("settings").Parse(`<!DOCTYPE html>
     <nav style="display:flex;gap:4px;">
       <a href="/ui"       class="nav-btn" id="nav-ui">Events</a>
       <a href="/summary"  class="nav-btn" id="nav-summary">Summary</a>
+      <a href="/logins"   class="nav-btn" id="nav-logins">Logins</a>
       <a href="/settings" class="nav-btn active">Settings</a>
     </nav>
     <button class="theme-btn" id="themeBtn" onclick="toggleTheme()">☀ light</button>
@@ -3078,3 +3239,254 @@ var settingsTmpl = template.Must(template.New("settings").Parse(`<!DOCTYPE html>
 </body>
 </html>
 `))
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Logins page template
+// ─────────────────────────────────────────────────────────────────────────────
+
+var loginsTmpl = template.Must(template.New("logins").Funcs(template.FuncMap{
+    "add": func(a, b int) int { return a + b },
+    "sub": func(a, b int) int { return a - b },
+    "mul": func(a, b int) int { return a * b },
+    "fmtTime": func(s string) string {
+	t, err := time.Parse(time.RFC3339Nano, s)
+	if err != nil {
+	    t, err = time.Parse(time.RFC3339, s)
+	    if err != nil {
+		return s
+	    }
+	}
+	return t.Format("01-02 15:04:05")
+    },
+}).Parse(`<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Logins — Audit Radar</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Epilogue:wght@700;800;900&family=JetBrains+Mono:wght@400;500;700&family=Syne:wght@700;800&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#080810;--bg2:#0f0f1a;--bg3:#161625;
+  --border:rgba(255,255,255,0.07);
+  --red:#ff3b3b;--red-dim:rgba(255,59,59,0.15);
+  --green:#34d399;--blue:#3b82f6;--yellow:#fbbf24;
+  --text:#e2e8f0;--text2:#94a3b8;--text3:#64748b;
+  --mono:'JetBrains Mono',monospace;
+  --sans:'Epilogue','Syne',sans-serif;
+}
+body.light{
+  --bg:#f8fafc;--bg2:#fff;--bg3:#f1f5f9;
+  --border:rgba(0,0,0,0.08);
+  --red:#cc0000;--green:#16a34a;--blue:#2563eb;--yellow:#b45309;
+  --text:#0f172a;--text2:#475569;--text3:#94a3b8;
+}
+body{font-family:var(--mono);background:var(--bg);color:var(--text);font-size:13px}
+header{display:flex;align-items:center;justify-content:space-between;padding:14px 28px;border-bottom:1px solid var(--border);background:var(--bg);backdrop-filter:blur(10px);box-shadow:0 1px 0 rgba(238,0,0,0.2),0 4px 20px rgba(0,0,0,0.4)}
+body.light header{background:rgba(241,245,249,0.97);box-shadow:0 1px 0 rgba(204,0,0,0.15),0 4px 12px rgba(0,0,0,0.08)}
+.brand-wrap{display:flex;align-items:center;gap:14px;text-decoration:none;color:inherit}
+header h1{font-family:var(--sans);font-size:22px;font-weight:900;letter-spacing:-0.04em;line-height:1}
+header h1 .audit{color:var(--red)}
+header h1 .sep{color:rgba(255,255,255,0.15);margin:0 2px}
+header h1 .radar{color:var(--blue)}
+body.light header h1 .sep{color:rgba(0,0,0,0.18)}
+.sub{font-size:9px;font-family:var(--mono);color:var(--text3);letter-spacing:2px;text-transform:uppercase;margin-top:5px}
+.live-dot{width:6px;height:6px;background:var(--red);border-radius:50%;display:inline-block;animation:blink 1.4s infinite;margin-right:6px;vertical-align:middle;box-shadow:0 0 6px var(--red)}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:0.3}}
+.nav-btn{padding:5px 12px;border-radius:5px;border:1px solid var(--border);background:transparent;color:var(--text2);font-size:12px;cursor:pointer;font-family:var(--mono);text-decoration:none;display:inline-block;transition:border-color 0.15s,color 0.15s}
+.nav-btn:hover{border-color:var(--blue);color:var(--blue)}
+.nav-btn.active{border-color:var(--red);color:var(--red);background:rgba(229,62,62,0.08)}
+.theme-btn{padding:4px 10px;border-radius:5px;border:1px solid var(--border);background:transparent;color:var(--text2);font-size:11px;cursor:pointer;font-family:var(--mono)}
+.page-wrap{padding:0}
+.filter-bar{padding:10px 20px;border-bottom:1px solid var(--border);display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.filter-input{background:var(--bg2);border:1px solid var(--border);border-radius:5px;padding:5px 10px;color:var(--text);font-size:12px;font-family:var(--mono);outline:none;width:140px}
+.filter-input:focus{border-color:var(--blue)}
+.filter-select{background:var(--bg2);border:1px solid var(--border);border-radius:5px;padding:5px 8px;color:var(--text);font-size:12px;font-family:var(--mono);outline:none;cursor:pointer}
+.btn-filter{padding:5px 14px;background:var(--red);border:none;border-radius:5px;color:#fff;font-size:12px;font-family:var(--mono);cursor:pointer;font-weight:600}
+.btn-clear{padding:5px 10px;background:transparent;border:1px solid var(--border);border-radius:5px;color:var(--text2);font-size:12px;font-family:var(--mono);cursor:pointer}
+.toolbar{display:flex;align-items:center;justify-content:space-between;padding:8px 20px;border-bottom:1px solid var(--border);font-size:11px;color:var(--text3)}
+.toolbar span{color:var(--text)}
+table{width:100%;border-collapse:collapse}
+thead tr{border-bottom:1px solid var(--border)}
+th{padding:8px 12px;text-align:left;font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;font-weight:500;white-space:nowrap}
+tbody tr{border-bottom:1px solid rgba(255,255,255,0.04);transition:background .1s}
+tbody tr:hover{background:var(--bg2)}
+td{padding:9px 12px;vertical-align:middle;white-space:nowrap}
+.ts{color:var(--text3);font-size:11px;font-variant-numeric:tabular-nums}
+.actor{color:var(--blue);font-size:12px}
+.method-badge{display:inline-flex;align-items:center;padding:2px 7px;border-radius:4px;font-size:10px;font-weight:700;letter-spacing:.4px}
+.m-web{background:rgba(251,191,36,0.12);color:var(--yellow);border:1px solid rgba(251,191,36,0.3)}
+.m-cli{background:rgba(59,130,246,0.12);color:var(--blue);border:1px solid rgba(59,130,246,0.3)}
+.m-api{background:rgba(139,92,246,0.12);color:#a78bfa;border:1px solid rgba(139,92,246,0.3)}
+.event-badge{display:inline-flex;align-items:center;padding:2px 7px;border-radius:4px;font-size:10px;font-weight:600}
+.e-login{background:rgba(52,211,153,0.12);color:var(--green);border:1px solid rgba(52,211,153,0.3)}
+.e-token{background:rgba(59,130,246,0.12);color:var(--blue);border:1px solid rgba(59,130,246,0.3)}
+.e-revoked{background:rgba(100,116,139,0.12);color:var(--text2);border:1px solid rgba(100,116,139,0.3)}
+.e-failed{background:rgba(255,59,59,0.12);color:var(--red);border:1px solid rgba(255,59,59,0.3)}
+.result-ok{color:var(--green);font-weight:600;font-size:12px}
+.result-err{color:var(--red);font-weight:600;font-size:12px}
+.ip{color:var(--text2);font-size:11px}
+.pagination{display:flex;align-items:center;gap:3px;padding:10px 20px}
+.page-btn{width:28px;height:28px;border-radius:5px;border:1px solid var(--border);background:transparent;color:var(--text2);font-size:12px;cursor:pointer;display:flex;align-items:center;justify-content:center;text-decoration:none;font-family:var(--mono)}
+.page-btn.active{background:var(--red);color:#fff;border-color:var(--red)}
+.page-btn.ellipsis{border:none;cursor:default;color:var(--text3)}
+::-webkit-scrollbar{width:6px;height:6px}
+::-webkit-scrollbar-track{background:var(--bg)}
+::-webkit-scrollbar-thumb{background:var(--text3);border-radius:3px}
+</style>
+</head>
+<body>
+<header>
+  <a href="/ui" class="brand-wrap" style="text-decoration:none;">
+    <svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32' width="38" height="38" style="flex-shrink:0;filter:drop-shadow(0 0 10px rgba(100,130,255,0.4))">
+      <circle cx='16' cy='16' r='15' fill='#080810'/>
+      <circle cx='16' cy='16' r='11' fill='none' stroke='#3b82f6' stroke-width='0.8' stroke-opacity='0.45'/>
+      <circle cx='16' cy='16' r='7'  fill='none' stroke='#3b82f6' stroke-width='0.8' stroke-opacity='0.75'/>
+      <circle cx='16' cy='16' r='3'  fill='none' stroke='#aab4c8' stroke-width='0.8'/>
+      <line x1='16' y1='1' x2='16' y2='31' stroke='#3b82f6' stroke-width='0.35' stroke-opacity='0.2'/>
+      <line x1='1'  y1='16' x2='31' y2='16' stroke='#3b82f6' stroke-width='0.35' stroke-opacity='0.2'/>
+      <line x1='16' y1='16' x2='27' y2='5'  stroke='#ee0000' stroke-width='2'   stroke-opacity='1' stroke-linecap='round'/>
+      <line x1='16' y1='16' x2='5'  y2='27' stroke='#3b82f6' stroke-width='1.5' stroke-opacity='0.9' stroke-linecap='round'/>
+      <circle cx='24' cy='9'  r='2.2' fill='#ee0000'/>
+      <circle cx='8'  cy='24' r='1.8' fill='#3b82f6'/>
+    </svg>
+    <div>
+      <h1><span class="audit">audit</span><span class="sep">·</span><span class="radar">radar</span></h1>
+      <div class="sub"><span class="live-dot"></span>real-time audit explorer</div>
+    </div>
+  </a>
+  <div style="display:flex;align-items:center;gap:12px;">
+    <nav style="display:flex;gap:4px;">
+      <a href="/ui"       class="nav-btn" data-page="ui">Events</a>
+      <a href="/summary"  class="nav-btn" data-page="summary">Summary</a>
+      <a href="/logins"   class="nav-btn active" data-page="logins">Logins</a>
+      <a href="/settings" class="nav-btn" data-page="settings">Settings</a>
+    </nav>
+    <button class="theme-btn" id="themeBtn" onclick="toggleTheme()">☀ light</button>
+    <button class="theme-btn" disabled style="opacity:0.25;cursor:default;pointer-events:none;">⏸ live</button>
+    {{if .Username}}
+    <div style="display:flex;align-items:center;gap:8px;padding:4px 10px;border:1px solid rgba(255,255,255,0.1);border-radius:5px;font-size:10px;font-family:inherit;">
+      <span style="color:var(--text3);">{{if eq .Role "admin"}}⬡{{else if eq .Role "editor"}}◈{{else}}◇{{end}}</span>
+      <span style="color:var(--text2);">{{.Username}}</span>
+      <span style="font-size:9px;padding:1px 6px;border-radius:2px;font-weight:700;letter-spacing:0.08em;
+        {{if eq .Role "admin"}}background:rgba(255,59,59,0.15);color:#ff8080;border:1px solid rgba(255,59,59,0.3);
+        {{else if eq .Role "editor"}}background:rgba(59,130,246,0.15);color:#93c5fd;border:1px solid rgba(59,130,246,0.3);
+        {{else}}background:rgba(100,116,139,0.15);color:#94a3b8;border:1px solid rgba(100,116,139,0.3);{{end}}">{{.Role}}</span>
+      <a href="/auth/logout" style="color:var(--text3);font-size:10px;font-family:inherit;text-decoration:none;padding:2px 6px;border-radius:3px;border:1px solid rgba(255,255,255,0.07);transition:all 0.15s;" onmouseover="this.style.color='#f87171';this.style.borderColor='rgba(248,113,113,0.3)'" onmouseout="this.style.color='';this.style.borderColor=''">exit</a>
+    </div>
+    {{end}}
+  </div>
+</header>
+
+<div class="page-wrap">
+<form method="GET" action="/logins">
+<div class="filter-bar">
+  <input class="filter-input" name="actor" placeholder="actor" value="{{.Filter.Actor}}">
+  <select class="filter-select" name="method">
+    <option value="">all methods</option>
+    <option value="web-console"{{if eq .Filter.Method "web-console"}} selected{{end}}>web-console</option>
+    <option value="oc-cli"{{if eq .Filter.Method "oc-cli"}} selected{{end}}>oc-cli</option>
+    <option value="api-token"{{if eq .Filter.Method "api-token"}} selected{{end}}>api-token</option>
+  </select>
+  <select class="filter-select" name="eventType">
+    <option value="">all events</option>
+    <option value="login"{{if eq .Filter.EventType "login"}} selected{{end}}>login</option>
+    <option value="token-issued"{{if eq .Filter.EventType "token-issued"}} selected{{end}}>token-issued</option>
+    <option value="token-revoked"{{if eq .Filter.EventType "token-revoked"}} selected{{end}}>token-revoked</option>
+    <option value="failed"{{if eq .Filter.EventType "failed"}} selected{{end}}>failed</option>
+  </select>
+  <select class="filter-select" name="success">
+    <option value="">all results</option>
+    <option value="true">success only</option>
+    <option value="false">failed only</option>
+  </select>
+  <button type="submit" class="btn-filter">Filter</button>
+  <a href="/logins" class="btn-clear">Clear</a>
+</div>
+</form>
+
+<div class="toolbar">
+  <div>showing <span>{{add .Offset 1}}–{{add .Offset (len .Events)}}</span> of <span>{{.Total}}</span> login events</div>
+</div>
+
+<table>
+<thead>
+<tr>
+  <th style="width:130px">time</th>
+  <th style="width:160px">actor</th>
+  <th style="width:100px">method</th>
+  <th style="width:110px">event</th>
+  <th style="width:120px">source ip</th>
+  <th style="width:60px">result</th>
+  <th>user agent</th>
+</tr>
+</thead>
+<tbody>
+{{range .Events}}
+<tr{{if not .Success}} style="background:rgba(229,62,62,0.04)"{{end}}>
+  <td class="ts" data-ts="{{.Timestamp}}"></td>
+  <td class="actor">{{.Actor}}</td>
+  <td>
+    {{if eq .Method "web-console"}}<span class="method-badge m-web">web</span>
+    {{else if eq .Method "oc-cli"}}<span class="method-badge m-cli">cli</span>
+    {{else}}<span class="method-badge m-api">api</span>{{end}}
+  </td>
+  <td>
+    {{if eq .EventType "login"}}<span class="event-badge e-login">login</span>
+    {{else if eq .EventType "logout"}}<span class="event-badge e-revoked">logout</span>
+    {{else if eq .EventType "token-issued"}}<span class="event-badge e-token">token</span>
+    {{else if eq .EventType "token-revoked"}}<span class="event-badge e-revoked">revoked</span>
+    {{else if eq .EventType "failed"}}<span class="event-badge e-failed">failed</span>
+    {{else}}<span class="event-badge e-revoked">{{.EventType}}</span>{{end}}
+  </td>
+  <td class="ip">{{.SourceIP}}</td>
+  <td>
+    {{if .Success}}<span class="result-ok">{{.Result}}</span>
+    {{else}}<span class="result-err">{{.Result}}</span>{{end}}
+  </td>
+  <td class="ip" style="max-width:300px;overflow:hidden;text-overflow:ellipsis;" title="{{.UserAgent}}">{{.UserAgent}}</td>
+</tr>
+{{else}}
+<tr><td colspan="7" style="text-align:center;padding:40px;color:#4a5568;">No login events yet — they appear once users log in via Web Console or oc login</td></tr>
+{{end}}
+</tbody>
+</table>
+
+{{if .PageNums}}
+<div class="pagination">
+  {{$offset := .Offset}}{{$pageSize := .PageSize}}
+  {{range .PageNums}}
+    {{if eq . -1}}<span class="page-btn ellipsis">…</span>
+    {{else}}
+      {{$thisOffset := mul (sub . 1) $pageSize}}
+      <a class="page-btn{{if eq $thisOffset $offset}} active{{end}}" href="/logins?offset={{$thisOffset}}">{{.}}</a>
+    {{end}}
+  {{end}}
+</div>
+{{end}}
+
+</div>
+<script>
+function toggleTheme(){
+  document.body.classList.toggle('light');
+  var btn=document.getElementById('themeBtn');
+  btn.textContent=document.body.classList.contains('light')?'🌙 dark':'☀ light';
+  localStorage.setItem('theme',document.body.classList.contains('light')?'light':'dark');
+}
+(function(){
+  if(localStorage.getItem('theme')==='light'){document.body.classList.add('light');document.getElementById('themeBtn').textContent='🌙 dark';}
+  document.querySelectorAll('td[data-ts]').forEach(function(td){
+    var raw=td.getAttribute('data-ts');
+    if(!raw)return;
+    var d=new Date(raw);
+    if(isNaN(d)){td.textContent=raw;return;}
+    var pad=function(n){return String(n).padStart(2,'0');};
+    td.textContent=d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate())+' '+pad(d.getHours())+':'+pad(d.getMinutes())+':'+pad(d.getSeconds());
+    td.title=raw;
+  });
+})();
+</script>
+</body>
+</html>`))

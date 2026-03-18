@@ -13,7 +13,15 @@ type Store interface {
 	SnapshotStore
 	ConfigMapSnapshotStore
 	ExclusionRuleStore
+	AuthStore
 	Close()
+}
+
+// AuthStore handles login/auth event persistence.
+type AuthStore interface {
+	InsertAuthEvent(ctx context.Context, ev model.AuthEvent) error
+	GetAuthEvents(ctx context.Context, f model.AuthEventFilter) ([]model.AuthEvent, error)
+	CountAuthEvents(ctx context.Context, f model.AuthEventFilter) (int, error)
 }
 
 // EventStore handles audit event persistence and querying.
