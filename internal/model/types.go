@@ -326,6 +326,7 @@ type OcDeploymentList struct {
 }
 
 type VectorAuditEvent struct {
+	Message                  string              `json:"message"`
 	AuditID                  string              `json:"auditID"`
 	Timestamp                string              `json:"@timestamp"`
 	Level                    string              `json:"level"`

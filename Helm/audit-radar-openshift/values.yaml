@@ -55,7 +55,7 @@ ollama:
   enabled: true
   model: "granite3.2:2b"
   storage: 10Gi
-  storageClassName: "ocs-external-storagecluster-ceph-rbd"
+  storageClassName: ""
   resources:
     requests:
       cpu: "1"

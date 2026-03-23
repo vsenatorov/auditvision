@@ -441,6 +441,76 @@ type uiTemplateData struct {
 // buildPageNums returns page numbers to show in paginator.
 // Uses -1 as sentinel for "…" ellipsis.
 // Always shows: first, last, current ±2, with ellipsis gaps.
+// Session grouping for Logins page
+type AuthSession struct {
+    Actor    string
+    Login    model.AuthEvent
+    Logout   *model.AuthEvent
+    Duration string
+    Active   bool
+}
+
+func groupIntoSessions(events []model.AuthEvent) []AuthSession {
+    // Events come newest-first — reverse to chronological for correct session pairing
+    reversed := make([]model.AuthEvent, len(events))
+    for i, e := range events {
+	reversed[len(events)-1-i] = e
+    }
+
+    var sessions []AuthSession
+    open := map[string]*model.AuthEvent{}
+    for i := range reversed {
+	e := &reversed[i]
+	switch e.EventType {
+	case "login":
+	    if prev, ok := open[e.Actor]; ok {
+		sessions = append(sessions, AuthSession{
+		    Actor:  e.Actor,
+		    Login:  *prev,
+		    Active: true,
+		})
+	    }
+	    open[e.Actor] = e
+	case "logout":
+	    if login, ok := open[e.Actor]; ok {
+		dur := ""
+		lt, err1 := time.Parse(time.RFC3339Nano, login.Timestamp)
+		lo, err2 := time.Parse(time.RFC3339Nano, e.Timestamp)
+		if err1 == nil && err2 == nil {
+		    d := lo.Sub(lt).Round(time.Second)
+		    if d < time.Minute {
+			dur = fmt.Sprintf("%ds", int(d.Seconds()))
+		    } else if d < time.Hour {
+			dur = fmt.Sprintf("%dm%ds", int(d.Minutes()), int(d.Seconds())%60)
+		    } else {
+			dur = fmt.Sprintf("%dh%dm", int(d.Hours()), int(d.Minutes())%60)
+		    }
+		}
+		sessions = append(sessions, AuthSession{
+		    Actor:    e.Actor,
+		    Login:    *login,
+		    Logout:   e,
+		    Duration: dur,
+		    Active:   false,
+		})
+		delete(open, e.Actor)
+	    }
+	}
+    }
+    for _, login := range open {
+	sessions = append(sessions, AuthSession{
+	    Actor:  login.Actor,
+	    Login:  *login,
+	    Active: true,
+	})
+    }
+    // Return newest sessions first
+    for i, j := 0, len(sessions)-1; i < j; i, j = i+1, j-1 {
+	sessions[i], sessions[j] = sessions[j], sessions[i]
+    }
+    return sessions
+}
+
 func buildPageNums(current, total int) []int {
     if total <= 1 {
 	return nil
@@ -531,14 +601,19 @@ func (s *uiServer) ui(w http.ResponseWriter, r *http.Request) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 type loginsTemplateData struct {
-    Events   []model.AuthEvent
-    Total    int
-    Offset   int
-    PageSize int
-    PageNums []int
-    Filter   model.AuthEventFilter
-    Username string
-    Role     string
+    Events        []model.AuthEvent
+    Sessions      []AuthSession
+    Total         int
+    Offset        int
+    PageSize      int
+    PageNums      []int
+    Filter        model.AuthEventFilter
+    Username      string
+    Role          string
+    StatLogins    int
+    StatLogouts   int
+    StatUnique    int
+    StatActive    int
 }
 
 func (s *uiServer) logins(w http.ResponseWriter, r *http.Request) {
@@ -572,15 +647,36 @@ func (s *uiServer) logins(w http.ResponseWriter, r *http.Request) {
     }
     total, _ := s.db.CountAuthEvents(ctx, f)
 
+    // Stats for today
+    var statLogins, statLogouts, statUnique, statActive int
+    s.pool.QueryRow(ctx, `SELECT COUNT(*) FROM auth_events WHERE event_type='login' AND ts > NOW() - INTERVAL '24 hours'`).Scan(&statLogins)
+    s.pool.QueryRow(ctx, `SELECT COUNT(*) FROM auth_events WHERE event_type='logout' AND ts > NOW() - INTERVAL '24 hours'`).Scan(&statLogouts)
+    s.pool.QueryRow(ctx, `SELECT COUNT(DISTINCT actor) FROM auth_events WHERE event_type='login' AND ts > NOW() - INTERVAL '24 hours'`).Scan(&statUnique)
+    // Active sessions: actors with login but no subsequent logout
+    s.pool.QueryRow(ctx, `
+	SELECT COUNT(DISTINCT actor) FROM auth_events l
+	WHERE l.event_type = 'login'
+	AND NOT EXISTS (
+	    SELECT 1 FROM auth_events lo
+	    WHERE lo.actor = l.actor AND lo.event_type = 'logout' AND lo.ts > l.ts
+	)
+	AND l.ts > NOW() - INTERVAL '24 hours'
+    `).Scan(&statActive)
+
     data := loginsTemplateData{
-	Events:   events,
-	Total:    total,
-	Offset:   f.Offset,
-	PageSize: 50,
-	PageNums: buildPageNums(f.Offset/50+1, (total+49)/50),
-	Filter:   f,
-	Username: sessionFromContext(r.Context()).Username,
-	Role:     string(sessionFromContext(r.Context()).Role),
+	Events:      events,
+	Sessions:    groupIntoSessions(events),
+	Total:       total,
+	Offset:      f.Offset,
+	PageSize:    50,
+	PageNums:    buildPageNums(f.Offset/50+1, (total+49)/50),
+	Filter:      f,
+	Username:    sessionFromContext(r.Context()).Username,
+	Role:        string(sessionFromContext(r.Context()).Role),
+	StatLogins:  statLogins,
+	StatLogouts: statLogouts,
+	StatUnique:  statUnique,
+	StatActive:  statActive,
     }
     w.Header().Set("Content-Type", "text/html; charset=utf-8")
     if err := loginsTmpl.Execute(w, data); err != nil {
@@ -3374,6 +3470,47 @@ body.light header h1 .sep{color:rgba(0,0,0,0.18)}
 .nav-btn.active{border-color:var(--red);color:var(--red);background:rgba(229,62,62,0.08)}
 .theme-btn{padding:4px 10px;border-radius:5px;border:1px solid var(--border);background:transparent;color:var(--text2);font-size:11px;cursor:pointer;font-family:var(--mono)}
 .page-wrap{padding:0}
+.stats-bar{display:flex;align-items:center;gap:0;padding:12px 20px;border-bottom:1px solid var(--border);background:var(--bg)}
+.stat-card{display:flex;flex-direction:column;align-items:center;gap:2px;padding:0 24px}
+.stat-val{font-family:var(--mono);font-size:22px;font-weight:700;color:var(--text);letter-spacing:-0.02em}
+.stat-blue{color:var(--blue)}
+.stat-green{color:var(--green)}
+.stat-label{font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;white-space:nowrap}
+.stat-sep{width:1px;height:32px;background:var(--border)}
+.sessions-wrap{border-bottom:1px solid var(--border)}
+.sessions-header{display:flex;align-items:center;justify-content:space-between;padding:10px 20px;font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:1px}
+.sessions-toggle{background:transparent;border:none;color:var(--text3);cursor:pointer;font-size:10px;font-family:var(--mono);padding:0}
+.sessions-toggle:hover{color:var(--text2)}
+/* Variant B — vertical event timeline */
+.timeline-b-wrap{padding:8px 20px 16px;max-height:420px;overflow-y:auto;position:relative}
+.timeline-b-wrap::-webkit-scrollbar{width:4px}
+.timeline-b-wrap::-webkit-scrollbar-track{background:transparent}
+.timeline-b-wrap::-webkit-scrollbar-thumb{background:var(--text3);border-radius:2px}
+.tl-spine{position:absolute;left:calc(20px + 140px + 20px);top:0;bottom:0;width:1px;background:linear-gradient(180deg,transparent,rgba(59,130,246,0.25) 10%,rgba(59,130,246,0.25) 90%,transparent);pointer-events:none}
+.tl-event{display:flex;align-items:flex-start;gap:0;padding:5px 0;position:relative}
+.tl-time-col{width:140px;text-align:right;font-size:10px;color:var(--text3);padding-right:16px;padding-top:8px;flex-shrink:0;font-family:var(--mono)}
+.tl-node{width:20px;flex-shrink:0;display:flex;justify-content:center;padding-top:8px;z-index:1}
+.tl-dot{width:9px;height:9px;border-radius:50%;flex-shrink:0;border:2px solid var(--bg)}
+.tl-dot-active{background:var(--blue);box-shadow:0 0 8px var(--blue);animation:blink 1.5s infinite}
+.tl-dot-done{background:var(--green);box-shadow:0 0 5px var(--green)}
+.tl-dot-failed{background:var(--red);box-shadow:0 0 5px var(--red)}
+.tl-dot-token{background:#a78bfa;box-shadow:0 0 5px #a78bfa}
+.tl-card{margin-left:12px;background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:9px 14px;flex:1;display:flex;justify-content:space-between;align-items:center;transition:border-color 0.15s;cursor:default}
+.tl-card:hover{border-color:rgba(255,255,255,0.14)}
+.tl-card-active{border-color:rgba(59,130,246,0.4);background:rgba(59,130,246,0.04)}
+.tl-card-failed{border-color:rgba(255,59,59,0.3);background:rgba(255,59,59,0.03)}
+.tl-actor{font-size:12px;font-weight:700;color:var(--blue)}
+.tl-etype{font-size:10px;margin-top:2px}
+.tl-etype-login{color:var(--green)}
+.tl-etype-logout{color:var(--red)}
+.tl-etype-failed{color:var(--red)}
+.tl-etype-token{color:#a78bfa}
+.tl-meta{display:flex;gap:10px;align-items:center;flex-shrink:0}
+.tl-ip{font-size:10px;color:var(--text3);font-family:var(--mono)}
+.tl-dur{font-size:10px;font-weight:600}
+.tl-dur-active{color:var(--blue)}
+.tl-dur-done{color:var(--text3)}
+.tl-mbadge{font-size:9px;font-weight:700;padding:2px 6px;border-radius:3px;letter-spacing:.3px}
 .filter-bar{padding:10px 20px;border-bottom:1px solid var(--border);display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 .filter-input{background:var(--bg2);border:1px solid var(--border);border-radius:5px;padding:5px 10px;color:var(--text);font-size:12px;font-family:var(--mono);outline:none;width:140px}
 .filter-input:focus{border-color:var(--blue)}
@@ -3455,6 +3592,27 @@ td{padding:9px 12px;vertical-align:middle;white-space:nowrap}
 </header>
 
 <div class="page-wrap">
+<div class="stats-bar">
+  <div class="stat-card">
+    <div class="stat-val">{{.StatLogins}}</div>
+    <div class="stat-label">logins (24h)</div>
+  </div>
+  <div class="stat-sep"></div>
+  <div class="stat-card">
+    <div class="stat-val">{{.StatLogouts}}</div>
+    <div class="stat-label">logouts (24h)</div>
+  </div>
+  <div class="stat-sep"></div>
+  <div class="stat-card">
+    <div class="stat-val stat-blue">{{.StatUnique}}</div>
+    <div class="stat-label">unique users (24h)</div>
+  </div>
+  <div class="stat-sep"></div>
+  <div class="stat-card">
+    <div class="stat-val {{if gt .StatActive 0}}stat-green{{end}}">{{.StatActive}}</div>
+    <div class="stat-label">active sessions</div>
+  </div>
+</div>
 <form method="GET" action="/logins">
 <div class="filter-bar">
   <input class="filter-input" name="actor" placeholder="actor" value="{{.Filter.Actor}}">
@@ -3480,6 +3638,50 @@ td{padding:9px 12px;vertical-align:middle;white-space:nowrap}
   <a href="/logins" class="btn-clear">Clear</a>
 </div>
 </form>
+
+{{if .Sessions}}
+<div class="sessions-wrap">
+  <div class="sessions-header">
+    <span>session timeline</span>
+    <button class="sessions-toggle" onclick="toggleSessions(this)">▾ collapse</button>
+  </div>
+  <div class="timeline-b-wrap" id="sessionsList">
+    <div class="tl-spine"></div>
+    {{range .Sessions}}
+    <div class="tl-event"
+         data-actor="{{.Actor}}"
+         data-login="{{.Login.Timestamp}}"
+         data-logout="{{if .Logout}}{{.Logout.Timestamp}}{{end}}"
+         data-active="{{.Active}}"
+         data-duration="{{.Duration}}"
+         data-method="{{.Login.Method}}"
+         data-ip="{{.Login.SourceIP}}"
+         data-result="{{.Login.Result}}">
+      <div class="tl-time-col" data-ts="{{.Login.Timestamp}}"></div>
+      <div class="tl-node">
+        <div class="tl-dot {{if .Active}}tl-dot-active{{else if eq .Login.EventType "failed"}}tl-dot-failed{{else if eq .Login.EventType "token-issued"}}tl-dot-token{{else}}tl-dot-done{{end}}"></div>
+      </div>
+      <div class="tl-card {{if .Active}}tl-card-active{{else if eq .Login.EventType "failed"}}tl-card-failed{{end}}">
+        <div>
+          <div class="tl-actor">{{.Actor}}</div>
+          <div class="tl-etype {{if .Active}}tl-etype-login{{else if eq .Login.EventType "failed"}}tl-etype-failed{{else}}tl-etype-logout{{end}}">
+            {{if .Active}}● login · active{{else if eq .Login.EventType "failed"}}⚠ failed attempt{{else}}● completed session{{end}}
+          </div>
+        </div>
+        <div class="tl-meta">
+          <span class="tl-ip">{{.Login.SourceIP}}</span>
+          <span class="tl-mbadge {{if eq .Login.Method "web-console"}}m-web{{else if eq .Login.Method "oc-cli"}}m-cli{{else}}m-api{{end}}">
+            {{if eq .Login.Method "web-console"}}web{{else if eq .Login.Method "oc-cli"}}cli{{else}}api{{end}}
+          </span>
+          {{if .Active}}<span class="tl-dur tl-dur-active">active</span>
+          {{else if .Duration}}<span class="tl-dur tl-dur-done">{{.Duration}}</span>{{end}}
+        </div>
+      </div>
+    </div>
+    {{end}}
+  </div>
+</div>
+{{end}}
 
 <div class="toolbar">
   <div>showing <span>{{add .Offset 1}}–{{add .Offset (len .Events)}}</span> of <span>{{.Total}}</span> login events</div>
@@ -3549,16 +3751,39 @@ function toggleTheme(){
   btn.textContent=document.body.classList.contains('light')?'🌙 dark':'☀ light';
   localStorage.setItem('theme',document.body.classList.contains('light')?'light':'dark');
 }
+function toggleSessions(btn){
+  var list=document.getElementById('sessionsList');
+  if(!list)return;
+  var collapsed=list.style.display==='none';
+  list.style.display=collapsed?'':'none';
+  btn.textContent=collapsed?'▾ collapse':'▸ expand';
+}
+(function(){
+  // Format timestamps in tl-time-col cells
+  document.querySelectorAll('.tl-time-col[data-ts]').forEach(function(el){
+    var raw=el.getAttribute('data-ts');if(!raw)return;
+    var d=new Date(raw);if(isNaN(d))return;
+    var pad=function(n){return String(n).padStart(2,'0');};
+    el.textContent=pad(d.getMonth()+1)+'-'+pad(d.getDate())+' '+pad(d.getHours())+':'+pad(d.getMinutes());
+    el.title=raw;
+  });
+  // Scroll to first active session
+  var active=document.querySelector('.tl-card-active');
+  if(active){
+    var wrap=document.getElementById('sessionsList');
+    if(wrap)wrap.scrollTop=Math.max(0,active.getBoundingClientRect().top-wrap.getBoundingClientRect().top-60);
+  }
+})();
 (function(){
   if(localStorage.getItem('theme')==='light'){document.body.classList.add('light');document.getElementById('themeBtn').textContent='🌙 dark';}
-  document.querySelectorAll('td[data-ts]').forEach(function(td){
-    var raw=td.getAttribute('data-ts');
+  document.querySelectorAll('[data-ts]').forEach(function(el){
+    var raw=el.getAttribute('data-ts');
     if(!raw)return;
     var d=new Date(raw);
-    if(isNaN(d)){td.textContent=raw;return;}
+    if(isNaN(d)){el.textContent=raw;return;}
     var pad=function(n){return String(n).padStart(2,'0');};
-    td.textContent=d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate())+' '+pad(d.getHours())+':'+pad(d.getMinutes())+':'+pad(d.getSeconds());
-    td.title=raw;
+    el.textContent=d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate())+' '+pad(d.getHours())+':'+pad(d.getMinutes())+':'+pad(d.getSeconds());
+    el.title=raw;
   });
 })();
 </script>
