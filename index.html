@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Audit Radar — Real-Time Audit Explorer for OpenShift & Kubernetes</title>
+<title>Audit Radar — Real-Time Audit Explorer for OpenShift</title>
 <meta name="description" content="Real-time audit log explorer for OpenShift with AI-powered risk scoring, alert rules, and compliance reporting. Built for Red Hat OpenShift 4.x.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -911,6 +911,195 @@ footer {
   opacity: 1;
   transform: translateY(0);
 }
+
+/* ── MOBILE ── */
+@media (max-width: 768px) {
+
+  /* Nav — hide links, show hamburger */
+  nav {
+    padding: 0 20px;
+    height: 56px;
+  }
+
+  .nav-links {
+    display: none;
+  }
+
+  .nav-hamburger {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    cursor: pointer;
+    padding: 8px;
+  }
+
+  .nav-hamburger span {
+    display: block;
+    width: 22px;
+    height: 2px;
+    background: var(--text-mid);
+    border-radius: 2px;
+    transition: all 0.2s;
+  }
+
+  /* Mobile nav drawer */
+  .mobile-nav {
+    display: none;
+    position: fixed;
+    top: 56px;
+    left: 0;
+    right: 0;
+    background: rgba(10,14,23,0.98);
+    backdrop-filter: blur(16px);
+    border-bottom: 1px solid var(--border);
+    padding: 16px 20px;
+    z-index: 99;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .mobile-nav.open { display: flex; }
+
+  .mobile-nav a {
+    color: var(--text-mid);
+    text-decoration: none;
+    font-family: var(--mono);
+    font-size: 14px;
+    padding: 12px 0;
+    border-bottom: 1px solid var(--border);
+    display: block;
+    transition: color 0.2s;
+  }
+
+  .mobile-nav a:last-child { border-bottom: none; }
+  .mobile-nav a:hover { color: var(--text); }
+
+  /* Hero */
+  .hero {
+    padding: 90px 24px 60px;
+    min-height: auto;
+  }
+
+  .hero-radar {
+    width: 320px;
+    height: 320px;
+    opacity: 0.5;
+  }
+
+  .hero-title {
+    font-size: 38px;
+  }
+
+  .hero-sub {
+    font-size: 15px;
+  }
+
+  .hero-actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .btn-primary, .btn-secondary {
+    justify-content: center;
+    padding: 14px 20px;
+  }
+
+  /* Stats bar */
+  .stats-bar {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .stat-item {
+    padding: 20px 16px;
+    border-right: 1px solid var(--border);
+    border-bottom: 1px solid var(--border);
+  }
+
+  .stat-item:nth-child(2n) { border-right: none; }
+  .stat-item:last-child { grid-column: span 2; border-bottom: none; }
+
+  .stat-value { font-size: 26px; }
+
+  /* Sections */
+  section {
+    padding: 60px 20px;
+  }
+
+  .section-title {
+    font-size: 26px;
+  }
+
+  /* Features grid */
+  .features-grid {
+    grid-template-columns: 1fr;
+    margin-top: 36px;
+  }
+
+  .feature-card { padding: 24px; }
+
+  /* Flow */
+  .flow {
+    grid-template-columns: 1fr;
+    margin-top: 36px;
+  }
+
+  .flow-step::after { display: none; }
+
+  .flow-step {
+    flex-direction: row;
+    text-align: left;
+    padding: 16px 0;
+    border-bottom: 1px solid var(--border);
+    gap: 16px;
+  }
+
+  .flow-step:last-child { border-bottom: none; }
+  .flow-num { flex-shrink: 0; margin-bottom: 0; }
+
+  /* AI block */
+  .ai-block {
+    grid-template-columns: 1fr;
+    gap: 32px;
+    margin-top: 36px;
+  }
+
+  .ai-title { font-size: 26px; }
+
+  /* Compliance */
+  .compliance-grid {
+    grid-template-columns: 1fr;
+    margin-top: 36px;
+  }
+
+  /* Terminal */
+  .terminal { margin-top: 36px; }
+  .terminal-body {
+    padding: 20px 16px;
+    font-size: 11px;
+    overflow-x: auto;
+  }
+
+  /* Blog grid */
+  .blog-card-title { font-size: 16px; }
+
+  /* CTA */
+  .cta-section { padding: 80px 24px; }
+  .cta-title { font-size: 28px; }
+
+  /* Footer */
+  footer {
+    padding: 28px 20px;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 16px;
+  }
+
+  .footer-links {
+    flex-wrap: wrap;
+    gap: 16px;
+  }
+}
 </style>
 </head>
 <body>
@@ -938,7 +1127,20 @@ footer {
     <li><a href="https://github.com/vsenatorov/auditvision" target="_blank">github</a></li>
     <li><a href="https://github.com/vsenatorov/auditvision" class="nav-cta" target="_blank">get started →</a></li>
   </ul>
+  <div class="nav-hamburger" id="hamburger" onclick="toggleMenu()">
+    <span></span><span></span><span></span>
+  </div>
 </nav>
+
+<div class="mobile-nav" id="mobileNav">
+  <a href="#features" onclick="toggleMenu()">features</a>
+  <a href="#how-it-works" onclick="toggleMenu()">how it works</a>
+  <a href="#ai" onclick="toggleMenu()">AI scoring</a>
+  <a href="#install" onclick="toggleMenu()">install</a>
+  <a href="https://blog.audit-radar.com" target="_blank">blog</a>
+  <a href="https://github.com/vsenatorov/auditvision" target="_blank">github</a>
+  <a href="https://github.com/vsenatorov/auditvision" target="_blank" style="color:var(--red);">get started →</a>
+</div>
 
 <!-- HERO -->
 <div class="hero">
@@ -1319,6 +1521,11 @@ const observer = new IntersectionObserver((entries) => {
 }, { threshold: 0.1 });
 
 document.querySelectorAll('.reveal').forEach(el => observer.observe(el));
+
+function toggleMenu() {
+  const nav = document.getElementById('mobileNav');
+  nav.classList.toggle('open');
+}
 </script>
 </body>
 </html>
