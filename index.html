@@ -31,7 +31,7 @@
   --display:   'Epilogue', sans-serif;
 }
 
-html { scroll-behavior: smooth; }
+html { scroll-behavior: smooth; overflow-x: hidden; }
 
 body {
   background: var(--bg);
@@ -978,13 +978,18 @@ footer {
   .hero {
     padding: 90px 24px 60px;
     min-height: auto;
+    overflow: hidden;
   }
 
   .hero-radar {
-    width: 320px;
-    height: 320px;
-    opacity: 0.5;
+    width: 300px;
+    height: 300px;
+    opacity: 0.4;
   }
+
+  .radar-ring:nth-child(4),
+  .radar-ring:nth-child(5) { display: none; }
+  .radar-sweep { width: 200px; height: 200px; margin: -100px 0 0 -100px; }
 
   .hero-title {
     font-size: 38px;
