@@ -1066,6 +1066,17 @@ footer {
 
   .ai-title { font-size: 26px; }
 
+  /* Risk demo rows — fix wrapping on mobile */
+  .risk-row {
+    flex-wrap: wrap;
+    gap: 4px;
+    padding: 10px 14px;
+  }
+
+  .risk-actor { flex: 0 0 100%; font-size: 11px; }
+  .risk-action { flex: 1; font-size: 11px; }
+  .risk-badge { flex-shrink: 0; }
+
   /* Compliance */
   .compliance-grid {
     grid-template-columns: 1fr;
@@ -1078,14 +1089,16 @@ footer {
     padding: 20px 16px;
     font-size: 11px;
     overflow-x: auto;
+    white-space: nowrap;
   }
 
   /* Blog grid */
   .blog-card-title { font-size: 16px; }
 
   /* CTA */
-  .cta-section { padding: 80px 24px; }
-  .cta-title { font-size: 28px; }
+  .cta-section { padding: 80px 20px; }
+  .cta-title { font-size: 26px; }
+  .cta-sub { font-size: 14px; }
 
   /* Footer */
   footer {
@@ -1099,6 +1112,15 @@ footer {
     flex-wrap: wrap;
     gap: 16px;
   }
+
+  /* Fix any inline grids in sections */
+  [style*="grid-template-columns: repeat"] {
+    grid-template-columns: 1fr !important;
+  }
+
+  /* Ensure full width usage */
+  .hero-content { width: 100%; }
+  .hero-sub { max-width: 100%; }
 }
 </style>
 </head>
@@ -1392,7 +1414,7 @@ footer {
 
     <div class="reveal" style="margin-top:48px; margin-bottom:32px;">
       <div style="font-family:var(--mono);font-size:11px;color:var(--text-dim);letter-spacing:0.1em;text-transform:uppercase;margin-bottom:20px;">Prerequisites</div>
-      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px;">
+      <div id="prereqs-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px;">
         <div style="background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:18px 20px;display:flex;align-items:flex-start;gap:12px;">
           <span style="color:var(--green);font-family:var(--mono);font-size:13px;margin-top:1px;">✓</span>
           <div>
@@ -1456,7 +1478,7 @@ footer {
     <h2 class="section-title">From the blog</h2>
     <p class="section-sub">Deep dives into Kubernetes security, audit logging, and what we learned building AuditRadar.</p>
   </div>
-  <div class="reveal" style="margin-top:40px; display:grid; grid-template-columns:repeat(auto-fill,minmax(320px,1fr)); gap:20px;">
+  <div class="reveal" style="margin-top:40px; display:grid; grid-template-columns:repeat(auto-fill,minmax(300px,1fr)); gap:20px;">
 
     <a href="https://blog.audit-radar.com/why-kubernetes-has-no-login-and-how-we-solved-it-for-auditradar" target="_blank" class="blog-card">
       <div class="blog-card-stripe"></div>
