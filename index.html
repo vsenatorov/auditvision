@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Audit Radar — Real-Time Audit Explorer for OpenShift</title>
+<title>Audit Radar — Real-Time Audit Explorer for OpenShift and Kubernetes</title>
 <meta name="description" content="Real-time audit log explorer for OpenShift with AI-powered risk scoring, alert rules, and compliance reporting. Built for Red Hat OpenShift 4.x.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -42,7 +42,6 @@ body {
   overflow-x: hidden;
 }
 
-/* ── NOISE TEXTURE OVERLAY ── */
 body::before {
   content: '';
   position: fixed;
@@ -53,7 +52,7 @@ body::before {
   opacity: 0.4;
 }
 
-/* ── NAV ── */
+/* NAV */
 nav {
   position: fixed;
   top: 0; left: 0; right: 0;
@@ -117,7 +116,7 @@ nav {
 
 .nav-cta:hover { background: #dc2626 !important; }
 
-/* ── HERO ── */
+/* HERO */
 .hero {
   position: relative;
   min-height: 100vh;
@@ -130,7 +129,6 @@ nav {
   overflow: hidden;
 }
 
-/* Radar background animation */
 .hero-radar {
   position: absolute;
   top: 50%;
@@ -173,7 +171,6 @@ nav {
 
 @keyframes sweep { to { transform: rotate(360deg); } }
 
-/* Blip dots */
 .radar-blip {
   position: absolute;
   width: 5px; height: 5px;
@@ -308,7 +305,7 @@ nav {
   to   { opacity: 1; transform: translateY(0); }
 }
 
-/* ── STATS BAR ── */
+/* STATS BAR */
 .stats-bar {
   display: flex;
   align-items: center;
@@ -349,7 +346,7 @@ nav {
   text-transform: uppercase;
 }
 
-/* ── SECTION ── */
+/* SECTION */
 section {
   position: relative;
   z-index: 1;
@@ -384,7 +381,7 @@ section {
   font-weight: 300;
 }
 
-/* ── FEATURE GRID ── */
+/* FEATURE GRID */
 .features-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
@@ -444,7 +441,7 @@ section {
   font-weight: 300;
 }
 
-/* ── TERMINAL / CODE BLOCK ── */
+/* TERMINAL */
 .terminal {
   background: #080c14;
   border: 1px solid var(--border);
@@ -462,11 +459,7 @@ section {
   border-bottom: 1px solid var(--border);
 }
 
-.term-dot {
-  width: 10px; height: 10px;
-  border-radius: 50%;
-}
-
+.term-dot { width: 10px; height: 10px; border-radius: 50%; }
 .term-dot.red   { background: #ef4444; }
 .term-dot.amber { background: #f59e0b; }
 .term-dot.green { background: #10b981; }
@@ -495,7 +488,7 @@ section {
 .t-prompt  { color: var(--red); user-select: none; }
 .t-blank   { display: block; height: 10px; }
 
-/* ── HOW IT WORKS ── */
+/* HOW IT WORKS */
 .flow {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
@@ -551,7 +544,7 @@ section {
   font-family: var(--mono);
 }
 
-/* ── COMPLIANCE ── */
+/* COMPLIANCE */
 .compliance-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -622,7 +615,7 @@ section {
   margin-top: 1px;
 }
 
-/* ── AI SECTION ── */
+/* AI SECTION */
 .ai-block {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -732,45 +725,93 @@ section {
 .risk-low    { background: rgba(16,185,129,0.1);  color: var(--green); border: 1px solid rgba(16,185,129,0.2); }
 .risk-medium { background: rgba(245,158,11,0.1);  color: var(--amber); border: 1px solid rgba(245,158,11,0.2); }
 
-/* ── INSTALL ── */
+/* INSTALL */
 .install-section {
   background: var(--bg2);
   border-top: 1px solid var(--border);
   border-bottom: 1px solid var(--border);
 }
 
-.install-section section {
-  max-width: 900px;
-}
+.install-section section { max-width: 900px; }
 
-.install-tabs {
-  display: flex;
-  gap: 0;
+/* BLOG CARD */
+.blog-card {
+  background: var(--bg3);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: 10px;
   overflow: hidden;
-  margin-bottom: 24px;
-  width: fit-content;
+  transition: border-color 0.2s, transform 0.2s;
+  text-decoration: none;
+  display: block;
 }
 
-.tab-btn {
-  padding: 8px 24px;
+.blog-card:hover {
+  border-color: rgba(239,68,68,0.4);
+  transform: translateY(-2px);
+}
+
+.blog-card-stripe {
+  height: 6px;
+  background: linear-gradient(135deg, #CC0000, #1a3a6b);
+}
+
+.blog-card-body { padding: 24px; }
+
+.blog-card-meta {
   font-family: var(--mono);
-  font-size: 12px;
-  letter-spacing: 0.06em;
+  font-size: 10px;
   color: var(--text-dim);
-  background: transparent;
-  border: none;
-  cursor: pointer;
-  transition: all 0.2s;
-  border-right: 1px solid var(--border);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  margin-bottom: 12px;
 }
 
-.tab-btn:last-child { border-right: none; }
-.tab-btn.active { background: var(--red); color: #fff; }
-.tab-btn:hover:not(.active) { color: var(--text); background: var(--bg3); }
+.blog-card-title {
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: 18px;
+  color: var(--text);
+  margin-bottom: 10px;
+  line-height: 1.3;
+}
 
-/* ── CTA ── */
+.blog-card-desc {
+  font-size: 13px;
+  color: var(--text-mid);
+  line-height: 1.6;
+}
+
+.blog-card-tags {
+  margin-top: 16px;
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.blog-tag {
+  font-family: var(--mono);
+  font-size: 10px;
+  padding: 2px 8px;
+  border-radius: 3px;
+}
+
+.blog-more {
+  background: var(--bg3);
+  border: 1px dashed var(--border);
+  border-radius: 10px;
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 200px;
+  transition: border-color 0.2s;
+  text-decoration: none;
+}
+
+.blog-more:hover { border-color: rgba(255,255,255,0.2); }
+
+/* CTA */
 .cta-section {
   text-align: center;
   padding: 120px 40px;
@@ -805,7 +846,7 @@ section {
   position: relative;
 }
 
-/* ── FOOTER ── */
+/* FOOTER */
 footer {
   border-top: 1px solid var(--border);
   padding: 40px;
@@ -853,14 +894,13 @@ footer {
 
 .footer-links a:hover { color: var(--text); }
 
-/* ── DIVIDER ── */
 .full-bleed {
   max-width: 100% !important;
   padding-left: 0 !important;
   padding-right: 0 !important;
 }
 
-/* ── SCROLL REVEAL ── */
+/* SCROLL REVEAL */
 .reveal {
   opacity: 0;
   transform: translateY(24px);
@@ -894,6 +934,7 @@ footer {
     <li><a href="#how-it-works">how it works</a></li>
     <li><a href="#ai">AI scoring</a></li>
     <li><a href="#install">install</a></li>
+    <li><a href="https://blog.audit-radar.com" target="_blank">blog</a></li>
     <li><a href="https://github.com/vsenatorov/auditvision" target="_blank">github</a></li>
     <li><a href="https://github.com/vsenatorov/auditvision" class="nav-cta" target="_blank">get started →</a></li>
   </ul>
@@ -920,7 +961,7 @@ footer {
       <span class="t-red">who</span> did <span class="t-blue">what</span><br>
       <span class="t-dim">in your cluster</span>
     </h1>
-    <p class="hero-sub">Real-time audit log explorer for OpenShift with AI-powered risk scoring, alert rules, and compliance reporting. Built for Red Hat OpenShift 4.x.</p>
+    <p class="hero-sub">Real-time audit log explorer for OpenShift and Kubernetes with AI-powered risk scoring, alert rules, and compliance reporting.</p>
     <div class="hero-actions">
       <a href="https://github.com/vsenatorov/auditvision" class="btn-primary" target="_blank">
         <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
@@ -1028,8 +1069,8 @@ footer {
       </div>
       <div class="flow-step">
         <div class="flow-num">02</div>
-        <div class="flow-name">CLF</div>
-        <div class="flow-desc">OpenShift Logging forwards to collector via HTTP</div>
+        <div class="flow-name">CLF / Vector</div>
+        <div class="flow-desc">Forwards audit log to collector via HTTP</div>
       </div>
       <div class="flow-step">
         <div class="flow-num">03</div>
@@ -1147,7 +1188,6 @@ footer {
       <p class="section-sub">Helm chart handles everything — secrets, RBAC, OAuthClient, groups. No manual configuration required.</p>
     </div>
 
-    <!-- Prerequisites -->
     <div class="reveal" style="margin-top:48px; margin-bottom:32px;">
       <div style="font-family:var(--mono);font-size:11px;color:var(--text-dim);letter-spacing:0.1em;text-transform:uppercase;margin-bottom:20px;">Prerequisites</div>
       <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px;">
@@ -1182,7 +1222,6 @@ footer {
       </div>
     </div>
 
-    <!-- The one command -->
     <div class="terminal reveal">
       <div class="terminal-bar">
         <div class="term-dot red"></div>
@@ -1207,6 +1246,39 @@ footer {
   </section>
 </div>
 
+<!-- BLOG -->
+<div style="background:var(--bg2); border-top:1px solid var(--border); border-bottom:1px solid var(--border);">
+<section id="blog">
+  <div class="reveal">
+    <div class="section-label">// blog</div>
+    <h2 class="section-title">From the blog</h2>
+    <p class="section-sub">Deep dives into Kubernetes security, audit logging, and what we learned building AuditRadar.</p>
+  </div>
+  <div class="reveal" style="margin-top:40px; display:grid; grid-template-columns:repeat(auto-fill,minmax(320px,1fr)); gap:20px;">
+
+    <a href="https://blog.audit-radar.com/why-kubernetes-has-no-login-and-how-we-solved-it-for-auditradar" target="_blank" class="blog-card">
+      <div class="blog-card-stripe"></div>
+      <div class="blog-card-body">
+        <div class="blog-card-meta">Mar 27, 2026 · 7 min read</div>
+        <div class="blog-card-title">Why Kubernetes Has No Login — And How We Solved It</div>
+        <div class="blog-card-desc">OpenShift has a built-in OAuth server. Kubernetes has nothing. Here's how we built session detection using X.509 credential fingerprints in audit logs.</div>
+        <div class="blog-card-tags">
+          <span class="blog-tag" style="background:var(--blue-dim);color:var(--blue);border:1px solid rgba(59,130,246,0.2);">#kubernetes</span>
+          <span class="blog-tag" style="background:var(--red-dim);color:var(--red);border:1px solid rgba(239,68,68,0.2);">#openshift</span>
+          <span class="blog-tag" style="background:rgba(16,185,129,0.1);color:var(--green);border:1px solid rgba(16,185,129,0.2);">#security</span>
+        </div>
+      </div>
+    </a>
+
+    <a href="https://blog.audit-radar.com" target="_blank" class="blog-more">
+      <div style="font-size:28px; margin-bottom:12px; opacity:0.4;">✍️</div>
+      <div style="font-family:var(--mono); font-size:13px; color:var(--text-dim); text-align:center;">More articles on<br>blog.audit-radar.com →</div>
+    </a>
+
+  </div>
+</section>
+</div>
+
 <!-- CTA -->
 <div class="cta-section">
   <div class="cta-glow"></div>
@@ -1228,6 +1300,7 @@ footer {
     <span class="footer-copy">© 2026 Viktor Senatorov · Apache 2.0</span>
   </div>
   <ul class="footer-links">
+    <li><a href="https://blog.audit-radar.com" target="_blank">blog</a></li>
     <li><a href="https://github.com/vsenatorov/auditvision" target="_blank">github</a></li>
     <li><a href="https://github.com/vsenatorov/auditvision/blob/main/README.md" target="_blank">docs</a></li>
     <li><a href="https://hub.docker.com/u/hybrid2k3" target="_blank">docker hub</a></li>
@@ -1236,7 +1309,6 @@ footer {
 </footer>
 
 <script>
-// Scroll reveal
 const observer = new IntersectionObserver((entries) => {
   entries.forEach(e => {
     if (e.isIntersecting) {
@@ -1250,4 +1322,3 @@ document.querySelectorAll('.reveal').forEach(el => observer.observe(el));
 </script>
 </body>
 </html>
-
