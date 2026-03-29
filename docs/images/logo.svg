@@ -1,0 +1,50 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 80" width="320" height="80">
+  <defs>
+    <style>
+      .bg { fill: #080810; }
+      .ring { fill: none; stroke: #3b82f6; }
+      .cross { fill: none; stroke: #3b82f6; stroke-width: 0.4; stroke-opacity: 0.2; }
+      .sweep-r { stroke: #ff3b3b; stroke-width: 2.2; stroke-linecap: round; }
+      .sweep-b { stroke: #3b82f6; stroke-width: 1.6; stroke-linecap: round; stroke-opacity: 0.9; }
+      .dot-r { fill: #ff3b3b; }
+      .dot-b { fill: #3b82f6; }
+      .t-audit { font-family: 'Epilogue', 'Syne', 'Arial Black', sans-serif; font-weight: 900; font-size: 28px; fill: #ff3b3b; letter-spacing: -0.04em; }
+      .t-sep   { font-family: 'Epilogue', 'Syne', 'Arial Black', sans-serif; font-weight: 900; font-size: 28px; fill: rgba(255,255,255,0.15); }
+      .t-radar { font-family: 'Epilogue', 'Syne', 'Arial Black', sans-serif; font-weight: 900; font-size: 28px; fill: #3b82f6; letter-spacing: -0.04em; }
+      .t-sub   { font-family: 'JetBrains Mono', 'Courier New', monospace; font-size: 9px; fill: #64748b; letter-spacing: 0.18em; text-transform: uppercase; }
+      @media (prefers-color-scheme: light) {
+        .bg { fill: #ffffff; }
+        .t-sep { fill: rgba(0,0,0,0.12); }
+        .t-sub { fill: #94a3b8; }
+      }
+    </style>
+  </defs>
+
+  <!-- Icon background circle -->
+  <circle cx="40" cy="40" r="34" class="bg"/>
+
+  <!-- Radar rings -->
+  <circle cx="40" cy="40" r="30" class="ring" stroke-width="0.7" stroke-opacity="0.35"/>
+  <circle cx="40" cy="40" r="20" class="ring" stroke-width="0.7" stroke-opacity="0.6"/>
+  <circle cx="40" cy="40" r="10" class="ring" stroke-width="0.9" stroke-opacity="0.9"/>
+
+  <!-- Crosshairs -->
+  <line x1="40" y1="10" x2="40" y2="70" class="cross"/>
+  <line x1="10" y1="40" x2="70" y2="40" class="cross"/>
+
+  <!-- Sweep lines (OCP = red, K8s = blue) -->
+  <line x1="40" y1="40" x2="62" y2="18" class="sweep-r" fill="none"/>
+  <line x1="40" y1="40" x2="18" y2="62" class="sweep-b" fill="none"/>
+
+  <!-- Dots at sweep ends -->
+  <circle cx="62" cy="18" r="3" class="dot-r"/>
+  <circle cx="18" cy="62" r="2.5" class="dot-b"/>
+
+  <!-- Wordmark -->
+  <text x="88" y="46">
+    <tspan class="t-audit">audit</tspan><tspan class="t-sep">·</tspan><tspan class="t-radar">radar</tspan>
+  </text>
+
+  <!-- Subtitle -->
+  <text x="89" y="62" class="t-sub">real-time audit explorer</text>
+</svg>
