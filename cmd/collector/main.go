@@ -61,6 +61,7 @@ func isExcluded(ne model.NormalizedEvent) bool {
 // ─────────────────────────────────────────────────────────────────────────────
 
 var xffCache sync.Map
+var credentialCache sync.Map
 var reXFF = regexp.MustCompile(`org-client-xff:([\d\.a-fA-F:]+)`)
 var reHAProxyTime = regexp.MustCompile(`\[(\d{2}/\w+/\d{4}:\d{2}:\d{2})`)
 
@@ -238,6 +239,10 @@ func auditSinkHandler(ctx context.Context, db store.Store, enricher *enrich.Enri
 	if err := db.InsertAuthEvent(ctx, ae); err != nil {
 	    log.Printf("collector: insert auth event %s: %v", raw.AuditID, err)
 	}
+        } else if ae, ok := extractK8sSessionEvent(ne); ok {
+	if err := db.InsertAuthEvent(ctx, ae); err != nil {
+	    log.Printf("collector: insert k8s session %s: %v", raw.AuditID, err)
+	}
         }
         if !shouldStore(ne) {
 	continue
@@ -327,6 +332,10 @@ func vectorSinkHandler(ctx context.Context, db store.Store, enricher *enrich.Enr
 	log.Printf("AUTH EVENT: type=%s actor=%s method=%s result=%d", ae.EventType, ae.Actor, ae.Method, ae.Result)
 	if err := db.InsertAuthEvent(ctx, ae); err != nil {
 	    log.Printf("vector-sink: insert auth event %s: %v", raw.AuditID, err)
+	}
+        } else if ae, ok := extractK8sSessionEvent(ne); ok {
+	if err := db.InsertAuthEvent(ctx, ae); err != nil {
+	    log.Printf("vector-sink: insert k8s session %s: %v", raw.AuditID, err)
 	}
         }
         if !shouldStore(ne) {
@@ -697,11 +706,59 @@ func extractAuthEvent(ne model.NormalizedEvent, requestObj *json.RawMessage) (mo
     }, true
 }
 
+func extractK8sSessionEvent(ne model.NormalizedEvent) (model.AuthEvent, bool) {
+    if ne.ActorType != "human" {
+    return model.AuthEvent{}, false
+    }
+    if ne.Resource == "oauthaccesstokens" || ne.Resource == "oauthauthorizetokens" {
+    return model.AuthEvent{}, false
+    }
+    credID := ""
+    if ne.Annotations != nil {
+    credID = ne.Annotations["authentication.kubernetes.io/credential-id"]
+    }
+    if credID == "" {
+    return model.AuthEvent{}, false
+    }
+    // OIDC/SA tokens (JTI=...) short-lived — 1h TTL
+    // X.509 certs (X509SHA256=...) long-lived — 8h TTL
+    isOIDC := strings.HasPrefix(credID, "JTI=")
+    ttl := 8 * time.Hour
+    if isOIDC {
+    ttl = 1 * time.Hour
+    }
+    cacheKey := ne.Actor + ":" + credID
+    if v, found := credentialCache.Load(cacheKey); found {
+    if time.Since(v.(time.Time)) < ttl {
+        return model.AuthEvent{}, false
+    }
+    }
+    credentialCache.Store(cacheKey, time.Now())
+    method := detectLoginMethod(ne.UserAgent, ne.Source)
+    if isOIDC && method == "api-token" {
+    method = "oidc"
+    }
+    log.Printf("K8S SESSION: actor=%s credID=%s method=%s ip=%s", ne.Actor, credID[:min(20,len(credID))], method, ne.SourceIP)
+    return model.AuthEvent{
+    AuditID:   ne.AuditID,
+    Timestamp: ne.Timestamp,
+    Actor:     ne.Actor,
+    Method:    method,
+    SourceIP:  ne.SourceIP,
+    UserAgent: ne.UserAgent,
+    Result:    200,
+    Success:   true,
+    EventType: "login",
+    }, true
+}
+
 func detectLoginMethod(userAgent, source string) string {
     ua := strings.ToLower(userAgent)
     switch {
-    case strings.Contains(ua, "kubectl/") || strings.Contains(ua, "oc/") || strings.Contains(ua, "openshift-client"):
+    case strings.Contains(ua, "oc/") || strings.Contains(ua, "openshift-client"):
     return "oc-cli"
+    case strings.Contains(ua, "kubectl/"):
+    return "kubectl"
     case strings.Contains(ua, "mozilla") || strings.Contains(ua, "chrome") || strings.Contains(ua, "safari"):
     return "web-console"
     case strings.Contains(ua, "bridge/") || strings.Contains(ua, "openshift-console"):

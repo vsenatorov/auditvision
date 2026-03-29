@@ -10,8 +10,9 @@ import (
 // ─────────────────────────────────────────────────────────────────────────────
 
 type AuditUser struct {
-	Username string   `json:"username"`
-	Groups   []string `json:"groups"`
+	Username string              `json:"username"`
+	Groups   []string            `json:"groups"`
+	Extra    map[string][]string `json:"extra,omitempty"`
 }
 
 type AuditObjectRef struct {
@@ -84,7 +85,8 @@ type NormalizedEvent struct {
 	ActionSummary string       `json:"actionSummary,omitempty"`
 	Changes       []ChangeItem `json:"changes,omitempty"`
 	RiskScore     string       `json:"riskScore,omitempty"`
-	RiskReason    string       `json:"riskReason,omitempty"`
+	RiskReason    string            `json:"riskReason,omitempty"`
+	Annotations   map[string]string `json:"annotations,omitempty"`
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

@@ -285,9 +285,10 @@ func (s *uiServer) summary(w http.ResponseWriter, r *http.Request) {
 	*model.SummaryResponse
 	Username string
 	Role     string
+	Platform string
     }
     w.Header().Set("Content-Type", "text/html; charset=utf-8")
-    if err := summaryTmpl.Execute(w, summaryPage{sum, sess.Username, string(sess.Role)}); err != nil {
+    if err := summaryTmpl.Execute(w, summaryPage{sum, sess.Username, string(sess.Role), envOr("PLATFORM", "openshift")}); err != nil {
 	http.Error(w, err.Error(), http.StatusInternalServerError)
     }
 }
@@ -436,6 +437,7 @@ type uiTemplateData struct {
     Username  string
     Role      string
     Namespace string
+    Platform  string
 }
 
 // buildPageNums returns page numbers to show in paginator.
@@ -589,6 +591,7 @@ func (s *uiServer) ui(w http.ResponseWriter, r *http.Request) {
 	Username:  sessionFromContext(r.Context()).Username,
 	Role:      string(sessionFromContext(r.Context()).Role),
 	Namespace: s.namespace,
+	Platform:  envOr("PLATFORM", "openshift"),
     }
     w.Header().Set("Content-Type", "text/html; charset=utf-8")
     if err := uiTmpl.Execute(w, data); err != nil {
@@ -610,6 +613,7 @@ type loginsTemplateData struct {
     Filter        model.AuthEventFilter
     Username      string
     Role          string
+    Platform      string
     StatLogins    int
     StatLogouts   int
     StatUnique    int
@@ -673,6 +677,7 @@ func (s *uiServer) logins(w http.ResponseWriter, r *http.Request) {
 	Filter:      f,
 	Username:    sessionFromContext(r.Context()).Username,
 	Role:        string(sessionFromContext(r.Context()).Role),
+	Platform:    envOr("PLATFORM", "openshift"),
 	StatLogins:  statLogins,
 	StatLogouts: statLogouts,
 	StatUnique:  statUnique,
@@ -1395,6 +1400,7 @@ var uiTmpl = template.Must(template.New("ui").Funcs(template.FuncMap{
       <h1><span class="audit">audit</span><span class="sep">·</span><span class="radar">radar</span></h1>
       <div class="sub"><span class="live-dot"></span>real-time audit explorer</div>
     </div>
+    <span style="font-family:'JetBrains Mono',monospace;font-size:9px;font-weight:600;letter-spacing:0.14em;text-transform:uppercase;padding:3px 8px;border-radius:3px;{{if eq .Platform "kubernetes"}}background:rgba(59,130,246,0.12);color:#7aabff;border:1px solid rgba(59,130,246,0.25);{{else}}background:rgba(238,0,0,0.1);color:#ff7070;border:1px solid rgba(238,0,0,0.25);{{end}}">{{if eq .Platform "kubernetes"}}K8S{{else}}OCP{{end}}</span>
   </a>
   <div style="display:flex;align-items:center;gap:12px;">
     <nav style="display:flex;gap:4px;">
@@ -3453,6 +3459,7 @@ body.light{
   --red:#cc0000;--green:#16a34a;--blue:#2563eb;--yellow:#b45309;
   --text:#0f172a;--text2:#475569;--text3:#94a3b8;
 }
+
 body{font-family:var(--mono);background:var(--bg);color:var(--text);font-size:13px}
 header{display:flex;align-items:center;justify-content:space-between;padding:14px 28px;border-bottom:1px solid var(--border);background:var(--bg);backdrop-filter:blur(10px);box-shadow:0 1px 0 rgba(238,0,0,0.2),0 4px 20px rgba(0,0,0,0.4)}
 body.light header{background:rgba(241,245,249,0.97);box-shadow:0 1px 0 rgba(204,0,0,0.15),0 4px 12px rgba(0,0,0,0.08)}
@@ -3567,6 +3574,7 @@ td{padding:9px 12px;vertical-align:middle;white-space:nowrap}
       <h1><span class="audit">audit</span><span class="sep">·</span><span class="radar">radar</span></h1>
       <div class="sub"><span class="live-dot"></span>real-time audit explorer</div>
     </div>
+    <span style="font-family:'JetBrains Mono',monospace;font-size:9px;font-weight:600;letter-spacing:0.14em;text-transform:uppercase;padding:3px 8px;border-radius:3px;{{if eq .Platform "kubernetes"}}background:rgba(59,130,246,0.12);color:#7aabff;border:1px solid rgba(59,130,246,0.25);{{else}}background:rgba(238,0,0,0.1);color:#ff7070;border:1px solid rgba(238,0,0,0.25);{{end}}">{{if eq .Platform "kubernetes"}}K8S{{else}}OCP{{end}}</span>
   </a>
   <div style="display:flex;align-items:center;gap:12px;">
     <nav style="display:flex;gap:4px;">
@@ -3670,8 +3678,8 @@ td{padding:9px 12px;vertical-align:middle;white-space:nowrap}
         </div>
         <div class="tl-meta">
           <span class="tl-ip">{{.Login.SourceIP}}</span>
-          <span class="tl-mbadge {{if eq .Login.Method "web-console"}}m-web{{else if eq .Login.Method "oc-cli"}}m-cli{{else}}m-api{{end}}">
-            {{if eq .Login.Method "web-console"}}web{{else if eq .Login.Method "oc-cli"}}cli{{else}}api{{end}}
+          <span class="tl-mbadge {{if eq .Login.Method "web-console"}}m-web{{else if eq .Login.Method "oc-cli"}}m-cli{{else if eq .Login.Method "kubectl"}}m-cli{{else if eq .Login.Method "oidc"}}m-web{{else}}m-api{{end}}">
+            {{if eq .Login.Method "web-console"}}web{{else if eq .Login.Method "oc-cli"}}oc{{else if eq .Login.Method "kubectl"}}kubectl{{else if eq .Login.Method "oidc"}}oidc{{else}}api{{end}}
           </span>
           {{if .Active}}<span class="tl-dur tl-dur-active">active</span>
           {{else if .Duration}}<span class="tl-dur tl-dur-done">{{.Duration}}</span>{{end}}
@@ -3706,7 +3714,9 @@ td{padding:9px 12px;vertical-align:middle;white-space:nowrap}
   <td class="actor">{{.Actor}}</td>
   <td>
     {{if eq .Method "web-console"}}<span class="method-badge m-web">web</span>
-    {{else if eq .Method "oc-cli"}}<span class="method-badge m-cli">cli</span>
+    {{else if eq .Method "oc-cli"}}<span class="method-badge m-cli">oc</span>
+    {{else if eq .Method "kubectl"}}<span class="method-badge m-cli">kubectl</span>
+    {{else if eq .Method "oidc"}}<span class="method-badge m-web">oidc</span>
     {{else}}<span class="method-badge m-api">api</span>{{end}}
   </td>
   <td>

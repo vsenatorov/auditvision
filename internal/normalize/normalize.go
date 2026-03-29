@@ -36,8 +36,15 @@ func Event(ev model.AuditEvent) model.NormalizedEvent {
 		Stage:       ev.Stage,
 		Level:       ev.Level,
 		RequestURI:  ev.RequestURI,
+		Annotations: ev.Annotations,
 	}
 
+	if ids, ok := ev.User.Extra["authentication.kubernetes.io/credential-id"]; ok && len(ids) > 0 {
+		if ne.Annotations == nil {
+			ne.Annotations = map[string]string{}
+		}
+		ne.Annotations["authentication.kubernetes.io/credential-id"] = ids[0]
+	}
 	ne.ActionSummary = ActionSummary(ne)
 	return ne
 }
@@ -51,6 +58,12 @@ func ActorType(username string) string {
 	case username == "system:admin" || username == "system:masters":
 		return "human"
 	case strings.HasPrefix(username, "system:"):
+		return "system"
+	case strings.HasPrefix(username, "k3s-"):
+		return "system"
+	case strings.HasPrefix(username, "k3s-"):
+		return "system"
+	case strings.HasPrefix(username, "k3s-"):
 		return "system"
 	default:
 		return "human"
